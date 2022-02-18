@@ -1,0 +1,10 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.customfields.manager.OptionsManager
+
+def issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUE KEY") // get issue where field exist
+def customField = ComponentAccessor.getCustomFieldManager().getCustomFieldObjectsByName("FIELD NAME").first()
+def optionsManager = ComponentAccessor.getOptionsManager()
+def options = optionsManager.getOptions(customField.getRelevantConfig(issue))
+for (def option : options) {
+    optionsManager.deleteOptionAndChildren(option)
+}

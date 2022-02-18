@@ -1,0 +1,98 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.index.IssueIndexingService
+import Synchronization.SynchronizationHelper
+import com.atlassian.jira.user.ApplicationUser
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import org.apache.http.entity.ContentType
+import org.apache.http.entity.StringEntity
+import org.apache.http.HttpEntity
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.client.methods.HttpGet
+import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import groovy.json.JsonSlurper
+import org.apache.http.impl.client.HttpClientBuilder
+import com.fasterxml.jackson.databind.node.ObjectNode
+import org.apache.http.client.methods.CloseableHttpResponse
+import com.atlassian.jira.util.thread.JiraThreadLocalUtil
+import groovy.json.JsonSlurper
+import com.atlassian.jira.event.type.EventDispatchOption
+import java.util.Date
+import java.sql.Timestamp
+
+
+//MutableIssue issue = ComponentAccessor.getIssueManager().getIssueObject("TAL-70")
+ApplicationUser curUser = ComponentAccessor.jiraAuthenticationContext.getLoggedInUser()
+ApplicationUser sysUser = ComponentAccessor.userManager.getUserByName("USERNAME")
+MutableIssue curIssue = issue
+    JiraThreadLocalUtil jtlu
+    Thread.start {
+        ComponentAccessor.jiraAuthenticationContext.setLoggedInUser(sysUser)
+        try {
+            jtlu = ComponentAccessor.getComponent(JiraThreadLocalUtil)
+            jtlu.preCall()
+            Class_ChangeStatus script = new Class_ChangeStatus()
+            script.run(curIssue)
+        }
+        catch (Exception e) {
+            log.error(e)
+        }
+        finally {
+            jtlu.postCall(Logger.getLogger("Class_ChangeStatus"))
+            ComponentAccessor.jiraAuthenticationContext.setLoggedInUser(curUser)
+        }
+    }
+
+
+class Class_ChangeStatus{
+
+    SynchronizationHelper  helper = new SynchronizationHelper()
+    Logger log = Logger.getLogger(this.class)
+
+    
+    void run(MutableIssue issue) {
+        String ID_HPSM = issue.getCustomFieldValue(helper.id_hpsm_CF)
+        String action = "ACTION"
+        String apiUrl = "URL"
+        log.setLevel(Level.DEBUG)
+        log.debug("${issue.key} api for request is - ${apiUrl}")
+        
+        // ValuesFields :
+        String KEY = issue.getCustomFieldValue("VALUE")
+        
+        // put in Field's map
+        ObjectNode map = JsonNodeFactory.instance.objectNode()
+        Date currentDate = new Date()
+        map.put("KEY","VALUE")
+        log.debug("${issue.key} field's map is - ${map}")
+     	
+    	HttpEntity entity = new StringEntity(map.toString(), ContentType.APPLICATION_JSON) as HttpEntity
+        int i = 0
+        String lastErrorResponse = ""
+        for(; i<helper.REPEATING_REQUESTS;i++){
+            CloseableHttpResponse createRequest = helper.postRequest(apiUrl, entity)
+            if (createRequest.statusLine.statusCode == 200) {
+                issue.setCustomFieldValue(helper.v_registration_time_CF , new Timestamp(new Date().getTime()))
+                ComponentAccessor.issueManager.updateIssue(helper.sysUser,issue,EventDispatchOption.DO_NOT_DISPATCH,false)
+				helper.reindexIssue(issue)
+                log.debug "${issue.key} status line to Register request is - ${createRequest.statusLine.statusCode}. entity is - ${createRequest.entity.content.text}"
+                break
+            } 
+            if(createRequest.statusLine.statusCode in [401,408,504,503,500]){
+                lastErrorResponse = createRequest.entity.content.text
+                log.error "${issue.key} Error during remote request ${createRequest.entity.content.text}"
+                sleep(helper.REPEATING_SLEEP_TIME_MS)
+            }
+        }
+        if(i == helper.REPEATING_REQUESTS){
+            helper.sendErrorEmail(issue,lastErrorResponse)
+        }
+	}
+}
+
+

@@ -1,0 +1,19 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.workflow.TransitionOptions.Builder
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.bc.issue.IssueService
+
+
+
+def transitIssue(Issue issue, String transitName){
+    IssueService issueService = ComponentAccessor.getIssueService()
+    ApplicationUser applicationUser = ComponentAccessor.getUserManager().getUserByKey("USERNAME")
+    def workflow = ComponentAccessor.workflowManager.getWorkflow(issue)
+    int transitionID = workflow.getActionsByName(transitName).first().id
+    Builder builder =  new Builder()
+    def transopt = builder.skipConditions().skipValidators().skipPermissions()
+    IssueService.TransitionValidationResult transitionValidationResult = issueService.validateTransition(applicationUser, issue.getId(), transitionID, issueService.newIssueInputParameters(),transopt.build())
+    log.debug("${issue.key} ${transitionValidationResult.isValid()}")
+    if (transitionValidationResult.isValid()) 
+	IssueService.IssueResult transitionResult = issueService.transition(applicationUser, transitionValidationResult)
+}

@@ -1,0 +1,20 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.customfields.option.Options
+
+String s = "OPOPTION1//SUBOPTION1"
+//String s = "2//3"
+String[] ss = s.split("//")
+CustomField typeCF = ComponentAccessor.customFieldManager.getCustomFieldObjectsByName("Название филда").first()
+for (String optionName : ss) {
+    def fieldConfig = typeCF.getConfigurationSchemes()[0].configs.values()[0] 
+	Options optionsInField = ComponentAccessor.optionsManager.getOptions(fieldConfig)
+    String sameOption = optionsInField.find{ it.value==optionName }
+    if (!sameOption){
+   		ComponentAccessor.optionsManager.createOption(fieldConfig,0,1,optionName) 
+        log.debug "option ${optionName} added to ${typeCF.name}"
+    }
+}
+
+       

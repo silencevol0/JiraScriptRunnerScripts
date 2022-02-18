@@ -1,0 +1,169 @@
+
+
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.user.ApplicationUser
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.link.LinkCollectionImpl
+import com.atlassian.jira.issue.link.IssueLink
+import com.atlassian.jira.bc.issue.IssueService
+import com.atlassian.jira.workflow.TransitionOptions.Builder
+import com.atlassian.jira.issue.IssueFactory
+import com.atlassian.jira.config.ConstantsManager
+import com.onresolve.scriptrunner.runner.customisers.WithPlugin
+import com.onresolve.scriptrunner.runner.customisers.PluginModule
+import com.atlassian.servicedesk.api.requesttype.RequestTypeService
+import com.atlassian.servicedesk.api.util.paging.SimplePagedRequest
+import com.atlassian.servicedesk.api.util.paging.PagedRequest
+import com.atlassian.servicedesk.api.requesttype.RequestType
+import com.atlassian.jira.issue.link.IssueLinkManager
+
+import tech.inno.servicedesk.projects.isd.CopyTriggerIssueFields
+import tech.inno.servicedesk.projects.isd.WorkplacePreparationRequest
+
+
+
+//MutableIssue issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUE KEY")
+
+
+new Class_CloseAndReopenTasksBasisFormatEmployee().run(issue)
+class Class_CloseAndReopenTasksBasisFormatEmployee {
+    
+    
+    Logger logger = Logger.getLogger(this.class.name)
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName("USERNAME")
+    IssueLinkManager issueLinkManager = ComponentAccessor.issueLinkManager
+    IssueManager issueManager = ComponentAccessor.getIssueManager()
+    IssueService issueService = ComponentAccessor.getIssueService()
+    CustomField customerRequestType = ComponentAccessor.customFieldManager.getCustomFieldObject(10302) // Customer Request Type
+    CustomField contractFormat = ComponentAccessor.customFieldManager.getCustomFieldObject(11005) // Contract format
+    CustomField firstName = ComponentAccessor.customFieldManager.getCustomFieldObject(10410) // Employee's first name
+    CustomField lastName = ComponentAccessor.customFieldManager.getCustomFieldObject(10401) // Employee's last name
+    CustomField middleName = ComponentAccessor.customFieldManager.getCustomFieldObject(10400) // Employee's middle name
+    CustomField specialisation = ComponentAccessor.customFieldManager.getCustomFieldObject(12213) // Specialisation
+    CustomField jobTitle = ComponentAccessor.customFieldManager.getCustomFieldObject(10458) //  
+    CustomField program = ComponentAccessor.customFieldManager.getCustomFieldObject(10507) // 
+    CustomField stream = ComponentAccessor.customFieldManager.getCustomFieldObject(10506) 
+    CustomField personalEmail = ComponentAccessor.customFieldManager.getCustomFieldObject(10803) // Personal Email
+	String summaryValue = ""
+	String CRTValue = ""
+    MutableIssue curIssue
+	
+	final String crtSotr = "REQUEST TYPE ID" // 
+    final String crtCreate = "REQUEST TYPE ID" //
+    final String crtPlace = "REQUEST TYPE ID" //
+    
+    def run(MutableIssue issue) {
+        logger.setLevel(Level.DEBUG)
+        curIssue = issue
+        String contractFormatValue = issue.getCustomFieldValue(contractFormat)
+        String lastNameValue = issue.getCustomFieldValue(lastName)
+        String firstNameValue = issue.getCustomFieldValue(firstName)
+        String middleNameValue = issue.getCustomFieldValue(middleName)
+        if (lastNameValue) summaryValue += lastNameValue + " "
+        if (firstNameValue) summaryValue += firstNameValue + " "
+        if (middleNameValue) summaryValue += middleNameValue
+        logger.debug "Summary from parent to ISD >>>>   ${summaryValue}"
+        logger.debug "${issue.key} Cotract format value is >>>> ${contractFormatValue}"
+        if (contractFormatValue == "CF VALUE") {
+            for (Issue linkIssue : findContaskIssue(issue)) {
+                logger.debug "${issue.key}  Link from mail issue to >>> ${linkIssue.key}"
+                if (checkCustomerRequestType(linkIssue) in ["CUSTOMER REQUEST TYPE","CUSTOMER REQUEST TYPE"] && 
+                	linkIssue.status.name != "Canceled") { 
+                    logger.debug "${issue.key} triggered transit to cancel issue with CustomerRequestType >>> ${checkCustomerRequestType(linkIssue)} issueLink Key >>> ${linkIssue.key}"
+                    transitIssue(linkIssue,"Canceled")
+                }
+            }
+            createNewTasks("SUMMARY: " + summaryValue, crtSotr)
+            createNewTasks("SUMMARY: " + summaryValue, crtCreate)
+        }
+        if (contractFormatValue == "CF VALUE") {
+            for (Issue linkIssue : findContaskIssue(issue)) {
+                 if (checkCustomerRequestType(linkIssue) in ["CUSTOMER REQUEST TYPE","CUSTOMER REQUEST TYPE","CUSTOMER REQUEST TYPE"] && 
+                	linkIssue.status.name != "Canceled") { 
+                    logger.debug "${issue.key} triggered transit to cancel issue with CustomerRequestType >>> ${checkCustomerRequestType(linkIssue)} issueLink Key >>> ${linkIssue.key}"
+                    transitIssue(linkIssue,"Canceled")
+                }
+            }
+            createNewTasks("SUMMARY: " + summaryValue, crtPlace)
+			createNewTasks("SUMMARY: " + summaryValue, crtCreate)
+            createNewTasks("SUMMARY: " + summaryValue, crtSotr)
+        }
+   }
+    
+    String checkCustomerRequestType(Issue issue) { 
+		String requestTypeId = issue.getCustomFieldValue(customerRequestType) // Check Customer Request Type
+		String requestName = customerRequestType.customFieldType.getDisplayedValue(requestTypeId)?.name //
+        logger.debug "The request name is >>>>>>>>>>  ${requestName}" 
+        return requestName
+    }
+    
+    Collection<Issue> findContaskIssue(Issue issue) {
+        Collection<Issue> allLinkIssues = ComponentAccessor.getIssueLinkManager().getLinkCollectionOverrideSecurity(issue).getAllIssues()
+        logger.debug "Collection Issues - >>>  ${allLinkIssues}"
+ 		return allLinkIssues
+    }
+    
+    def transitIssue(Issue issue, String transitName){
+    	def workflow = ComponentAccessor.workflowManager.getWorkflow(issue)
+    	int transitionID = workflow.getActionsByName(transitName).first().id
+    	Builder builder =  new Builder()
+    	def transopt = builder.skipConditions().skipValidators().skipPermissions()
+    	IssueService.TransitionValidationResult transitionValidationResult = issueService.validateTransition(admin, issue.getId(), transitionID, issueService.newIssueInputParameters(),transopt.build())
+        if (transitionValidationResult.isValid()) {
+            IssueService.IssueResult transitionResult = issueService.transition(admin, transitionValidationResult)	
+        }
+	}
+          
+   
+	MutableIssue createNewTasks(String summary, String crtId) {
+		IssueFactory issueFactory = ComponentAccessor.getIssueFactory()
+		ConstantsManager constantManager = ComponentAccessor.getConstantsManager()
+		MutableIssue newTask = issueFactory.getIssue()
+        def requestType = customerRequestType.getCustomFieldType().getSingularObjectFromString(crtId)
+        if (curIssue.getDescription()) newTask.setDescription(curIssue.getDescription())
+    	newTask.setSummary(summary)
+		newTask.setProjectObject(ComponentAccessor.getProjectManager().getProjectByCurrentKey("PROJECT KEY"))
+    	newTask.setIssueTypeId(constantManager.getAllIssueTypeObjects().find{it.getName() == "ISSUE TYPE"}.id)
+        newTask.setCustomFieldValue(customerRequestType,requestType)
+        logger.debug("New issue ${newTask}")
+    	Map<String,Object> newIssueParams = ["issue" : newTask] as Map<String,Object>   
+        newTask = issueManager.createIssueObject(admin, newIssueParams) as MutableIssue
+        logger.error "Issue with summary ${newTask.summary} created > issue key > ${newTask.key}"
+        CopyTriggerIssueFields.copyWorkplacePreparationFields(curIssue, newTask)
+        issueLinkManager.createIssueLink(curIssue.id, newTask.id, 10300l, null,admin)
+        return newTask      
+    }   
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	       

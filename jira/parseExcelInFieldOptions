@@ -1,0 +1,49 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.CustomFieldManager
+import com.onresolve.jira.groovy.user.FormField
+import com.atlassian.jira.issue.customfields.manager.OptionsManager
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+
+
+String s = "Option1//option1.2///option2//option2.1"
+Logger logger = Logger.getLogger("LOG NAME")
+logger.setLevel(Level.DEBUG)
+Map<String,List<String>> end = new HashMap()
+List<String> values = new ArrayList()
+List<String> prend = new ArrayList()
+List<String> ss = new ArrayList()
+
+
+for (String replace : s.split("///")) {
+    ss.add(replace)
+}
+for (String link : ss) {
+	for (String keyvalue : link.split("//")) {
+    	prend.add(keyvalue)   
+    }
+	//log.debug("Link is - ${link}")
+    if (end.containsKey(prend[0])) {
+        List<String> copy = new ArrayList<>()
+        copy = end.getAt(prend[0])
+        copy.add(prend[1])
+        end.putAt(prend[0],copy)
+    }
+    else {
+    	List<String> copy = new ArrayList<>()
+    	copy.add(prend[1])
+        end.putAt(prend[0], copy)
+    }
+    prend.clear()
+}
+for (def key : end.keySet()) {
+    values = end.get(key)
+	ArrayList<String> sl = new ArrayList<String>();
+        for (int i = 0; i < values.size(); i++) {
+            sl.add("'" + values[i] + "'"); 
+        }
+    log.debug sl
+}

@@ -1,0 +1,34 @@
+import com.atlassian.jira.bc.issue.IssueService
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.IssueInputParameters
+import com.atlassian.jira.user.ApplicationUser
+import org.apache.commons.lang.StringUtils
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.project.ProjectManager
+import com.atlassian.jira.issue.IssueManager
+
+def iqlFacade = ComponentAccessor.getOSGiComponentInstanceOfType(ComponentAccessor.getPluginAccessor()
+.getClassLoader().findClass("com.riadalabs.jira.plugins.insight.channel.external.api.facade.IQLFacade")) // Подгружаем класс для работы с IQL в инсайде
+def constantManager = ComponentAccessor.getConstantsManager()
+def projectKey = ComponentAccessor.projectManager.getProjectObjByKey("PROJECTKEY") //
+def user = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser() // наш CurrentUser
+def issueService = ComponentAccessor.getIssueService()
+def issueInputParameters = issueService.newIssueInputParameters()
+def issueManager = ComponentAccessor.getIssueManager()
+def newIssue = ComponentAccessor.issueFactory.getIssue()
+def cf = ComponentAccessor.customFieldManager.getCustomFieldObjectsByName("FIELDNAME").first()
+def cfObject = iqlFacade.findObjects("""IQL SEARCHER""")
+newIssue.setSummary("Что то и здесь должно быть")
+newIssue.setDescription("Это тест с консоли")
+newIssue.setProjectObject(projectKey)
+newIssue.setCustomFieldValue(cf,cfObject)
+newIssue.setIssueTypeId(constantManager.getAllIssueTypeObjects().find{it.getName() == "Запрос на обслуживание"}.id)
+
+
+
+Map<String,Object> newIssueParams = ["issue" : newIssue] as Map<String,Object>
+    issueManager.createIssueObject(alex, newIssueParams) // создание задач (обязательно наличие всех необходимых филдов)
+
+
+
+

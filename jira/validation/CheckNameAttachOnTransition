@@ -1,0 +1,31 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.opensymphony.workflow.InvalidInputException
+import com.atlassian.jira.issue.IssueFieldConstants
+import com.atlassian.jira.issue.attachment.TemporaryWebAttachment
+import com.atlassian.jira.issue.attachment.TemporaryWebAttachmentManager
+import webwork.action.ActionContext
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+
+boolean result = false
+
+
+def aM = ComponentAccessor.getAttachmentManager()
+def attachments = aM.getAttachments(issue)
+if (attachments.size() > 0) {
+	for (def attachment : attachments ) 
+    	if (attachment.getFilename().toLowerCase().contains("проверка_") || checkNewAttaches())  return true
+    	else (checkNewAttaches())	
+	}
+else (checkNewAttaches())	
+
+boolean checkNewAttaches(){
+    Boolean result = false
+    def temporaryAttachmentUtil = ComponentAccessor.getComponent(TemporaryWebAttachmentManager)
+	def formToken = ActionContext.getRequest()?.getParameter(IssueFieldConstants.FORM_TOKEN)
+	Collection<TemporaryWebAttachment> tempWebAttachments = temporaryAttachmentUtil.getTemporaryWebAttachmentsByFormToken(formToken)
+    for (TemporaryWebAttachment attachment : tempWebAttachments) {
+        if(attachment.getFilename().toLowerCase().contains("проверка_")) result = true
+    }
+    return result   
+}

@@ -1,0 +1,52 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.servicedesk.api.requesttype.RequestTypeService
+import com.atlassian.servicedesk.api.request.type.CustomerRequestTypeService
+import com.atlassian.servicedesk.api.user.UserFactory
+import com.atlassian.servicedesk.api.util.paging.SimplePagedRequest
+import com.atlassian.servicedesk.api.util.paging.PagedRequest
+import com.atlassian.servicedesk.api.util.paging.PagedResponse
+import com.atlassian.servicedesk.api.user.UserFactory
+import com.atlassian.servicedesk.api.requesttype.RequestTypeQuery
+import com.atlassian.servicedesk.api.requesttype.RequestType
+import com.atlassian.servicedesk.api.user.UncheckedUser
+import com.atlassian.servicedesk.api.request.type.CustomerRequestType
+import com.atlassian.servicedesk.api.request.type.CustomerRequestTypeQuery
+import com.onresolve.scriptrunner.runner.customisers.WithPlugin
+import com.onresolve.scriptrunner.runner.customisers.PluginModule
+
+@WithPlugin("com.atlassian.servicedesk")
+@PluginModule
+RequestTypeService requestTypeService
+@PluginModule
+CustomerRequestTypeService customerRequestTypeService
+@PluginModule
+UserFactory userFactory
+
+ApplicationUser admin = ComponentAccessor.userManager.getUserByName("USERNAME")
+def issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUE KEY")
+String requestTypeName = "REQUEST TYPE NAME"
+RequestType newRequestType
+ApplicationUser currentUser = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser() //Получаем текущего пользователя (создателя)
+
+int numberOfRequestTypes = 300 //approximate amount of customer request types on your instance the more the better)
+for(int limitRequest = 0;limitRequest <numberOfRequestTypes;limitRequest += 100){
+	PagedRequest pagedRequest = new SimplePagedRequest(limitRequest,limitRequest+100)
+	RequestTypeQuery reqTypeQuery = requestTypeService.newQueryBuilder().pagedRequest(pagedRequest).build()
+	PagedResponse<RequestType> reqTypes = requestTypeService.getRequestTypes(currentUser, reqTypeQuery)
+	if(reqTypes.results.find{it.getName()==requestTypeName}){
+		newRequestType = reqTypes.results.find{it.getName()==requestTypeName}
+		break
+	}
+}
+CustomerRequestTypeQuery customerRequestTypeQuery = customerRequestTypeService.newQueryBuilder().requestType(newRequestType).build()
+UncheckedUser uncheckedUser = userFactory.getUncheckedUser()
+CustomerRequestType customerRequestType = customerRequestTypeService.getCustomerRequestType(uncheckedUser, customerRequestTypeQuery) as CustomerRequestType
+
+CustomField cfReqType = ComponentAccessor.customFieldManager.getCustomFieldObject(10302) 
+issue.setCustomFieldValue(cfReqType , customerRequestType)
+ComponentAccessor.getIssueManager().updateIssue(currentUser , issue, EventDispatchOption.DO_NOT_DISPATCH, false)

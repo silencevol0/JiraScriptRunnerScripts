@@ -1,0 +1,88 @@
+
+
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.index.IssueIndexingService
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.config.properties.APKeys
+import com.atlassian.jira.issue.link.LinkCollectionImpl
+import com.atlassian.jira.issue.link.IssueLink
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.comments.CommentManager
+import com.atlassian.jira.issue.comments.Comment
+import java.util.Date
+
+
+
+
+//Issue issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUE KEY")
+new ProjectISD_SendCommentAfterResolutionIssueLinks().run(issue)
+class ProjectISD_SendCommentAfterResolutionIssueLinks {
+    
+    Logger logger = Logger.getLogger(this.class.name)
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName("USERNAME")
+    IssueManager issueManager = ComponentAccessor.getIssueManager()
+    CommentManager commentManager = ComponentAccessor.getCommentManager()
+    CustomField equipment = ComponentAccessor.customFieldManager.getCustomFieldObject(11333) 
+    CustomField trackNumber = ComponentAccessor.customFieldManager.getCustomFieldObject(11329)
+    CustomField login = ComponentAccessor.customFieldManager.getCustomFieldObject(12527)
+    CustomField customerRequestType = ComponentAccessor.customFieldManager.getCustomFieldObject(10302)
+    MutableIssue linkIssue
+
+    
+    void run(MutableIssue issue) {
+        logger.setLevel(Level.DEBUG)
+        findContaskIssue(issue)
+        if (checkCustomerRequestType(issue) == "CUSTOMER REQUEST TYPE") {
+        	String equipmentValue = issue.getCustomFieldValue(equipment)
+            String trackNumberValue = issue.getCustomFieldValue(trackNumber)
+            String body = ""
+            if (getTransitionComment(issue)) body = "Комментарий >>>> ${getTransitionComment(issue)} \n\n" // почему важно расположение?
+            if (equipmentValue) body = body + "Оборудование - ${equipmentValue} \n"
+            if (trackNumberValue) body = body + "Трек номер - ${trackNumberValue} \n"
+            if (body == "") body = "Данные оборудования, трек номер, а так же комментарий не были заполнены."
+            sendComment(linkIssue, body)
+        } 
+    }
+	
+    String checkCustomerRequestType(MutableIssue issue) { 
+		String requestTypeId = issue.getCustomFieldValue(customerRequestType) // Check Customer Request Type
+		String requestName = customerRequestType.customFieldType.getDisplayedValue(requestTypeId)?.name //
+        logger.debug "The request name is >>>>>>>>>>  ${requestName}" 
+        return requestName
+    }
+    
+    Issue findContaskIssue(MutableIssue issue) {
+        List<IssueLink> allOutIssueLink = ComponentAccessor.getIssueLinkManager().getInwardLinks(issue.getId())
+ 		for (IssueLink issueLink : allOutIssueLink) {
+ 			String key = issueLink.getSourceObject().getKey()
+            logger.debug "${issue.key}: Find Issue Link, key >>>>>> " + key
+            if (key.contains("PROJECT KEY")) {
+        		linkIssue = ComponentAccessor.getIssueManager().getIssueObject(key)
+                logger.debug "${issue.key}: Trigerred issue key >>>> " + key
+                return linkIssue
+            }
+ 		}
+    }
+    
+    void sendComment(MutableIssue linkIssue, String body) {
+        commentManager.create(linkIssue, admin, body, true)
+    }
+    
+    String getTransitionComment(MutableIssue issue) {
+        Comment comment = commentManager.getLastComment(issue)
+        if (comment.created.getTime() > new Date().getTime() - 150000 ) {
+            logger.debug "The comment was created on the transition"
+            logger.debug "Body is - >>>>>  ${comment.body}"
+            return comment.body
+        }
+        else logger.debug "The comment was not created on the transition"
+        
+    }
+} 
