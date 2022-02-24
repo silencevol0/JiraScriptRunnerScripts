@@ -1,0 +1,110 @@
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.index.IssueIndexingService
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.config.properties.APKeys
+import com.atlassian.jira.issue.link.LinkCollectionImpl
+import com.atlassian.jira.issue.link.IssueLink
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.*
+import com.atlassian.jira.event.issue.IssueEvent
+import com.atlassian.jira.bc.issue.IssueService
+import com.atlassian.servicedesk.api.requesttype.RequestTypeService
+import com.atlassian.servicedesk.api.user.UserFactory
+import com.onresolve.scriptrunner.runner.customisers.WithPlugin
+
+
+
+
+
+new _SendAssigneFromTo().run(event)
+class _SendAssigneFromTo {
+    
+    
+    Logger logger = Logger.getLogger(this.class.name)
+    IssueManager issueManager = ComponentAccessor.getIssueManager()
+    CustomField assigneeCAA = ComponentAccessor.customFieldManager.getCustomFieldObject(14403) // Custom Field: Assignee Creating an account
+    CustomField assigneePOE = ComponentAccessor.customFieldManager.getCustomFieldObject(14402) // Custom Field: Assignee preparation of equipment
+    CustomField customerRequestType = ComponentAccessor.customFieldManager.getCustomFieldObject(10302)
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName("USERNAME")
+    MutableIssue linkIssue
+    ApplicationUser assignee
+    
+    
+
+    
+    void run(IssueEvent event) {
+        logger.setLevel(Level.DEBUG)
+        MutableIssue issue = event.issue as MutableIssue
+        logger.debug issue.key
+        if (checkCustomerRequestType(issue) == "CUSTOMER REQUEST TYPE") {
+            findContaskIssue(issue)
+            linkIssue.setCustomFieldValue(assigneePOE, issue.getAssignee())
+            logger.debug "LinkIssue is - >>> ${linkIssue.key} ,  Issue getAssignee >>>> ${issue.getAssignee()}"
+            updateIssue(linkIssue)
+        }
+        else if (checkCustomerRequestType(issue) == "CUSTOMER REQUEST TYPE") {
+            findContaskIssue(issue)
+			if (issue.getAssignee()) linkIssue.setCustomFieldValue(assigneeCAA, issue.getAssignee()) 
+            logger.debug "IssueKey is - >>> ${linkIssue.key} ,  Issue getAssignee >>>> ${issue.getAssignee()}"
+            updateIssue(linkIssue)
+        }
+        else logger.debug "Несовпадение по Customer Request Type."
+    }
+    
+    String checkCustomerRequestType(MutableIssue issue) {
+        try {
+    	IssueManager issueManager = ComponentAccessor.getIssueManager()
+		CustomFieldManager customFieldManager = ComponentAccessor.getCustomFieldManager();
+		def requestTypeService = ComponentAccessor.getOSGiComponentInstanceOfType(RequestTypeService)
+		def reqQ = requestTypeService.newQueryBuilder().issue(issue.id).build()
+		def reqT = requestTypeService.getRequestTypes(admin, reqQ)
+		def requestType = reqT.results[0].getName() //Получаем название реквеста
+        logger.debug "The request name is >>>>>>>>>>  ${requestType}" 
+		return requestType 
+        }
+        catch (e) {
+            if (issue.summary.contains("SUMMARY"))   return "CUSTOMER REQUEST TYPE"
+            else return null
+        }
+    }
+	
+    //String checkCustomerRequestType(MutableIssue issue) {
+	//	String requestTypeId = issue.getCustomFieldValue(customerRequestType) // Check Customer Request Type
+		//String requestName = customerRequestType.customFieldType.getDisplayedValue(requestTypeId)?.name //
+      //  logger.debug "The request name is >>>>>>>>>>  ${requestName}" 
+       // return requestName
+   // }
+    
+    Issue findContaskIssue(MutableIssue issue) {
+        List<IssueLink> allOutIssueLink = ComponentAccessor.getIssueLinkManager().getInwardLinks(issue.getId())
+ 		for (Iterator<IssueLink> outIterator = allOutIssueLink.iterator(); outIterator.hasNext();) {
+			IssueLink issueLink = (IssueLink) outIterator.next()
+ 			String key = issueLink.getSourceObject().getKey()
+ 			logger.debug "Find Issue Link, key >>>>>> " + key
+            if (key.contains("CONTASKS")) {
+        		linkIssue = ComponentAccessor.getIssueManager().getIssueObject(key)
+                logger.debug "Trigerred issue key >>>> " + key
+                return linkIssue
+            }
+ 		}
+    }
+    void updateIssue(MutableIssue issue) {
+    issueManager.updateIssue(admin,issue,EventDispatchOption.DO_NOT_DISPATCH,true)
+    IssueIndexingService indexing = (IssueIndexingService) ComponentAccessor.getComponent(IssueIndexingService.class)
+    indexing.reIndex(issue)
+    }
+}
+
+
+
+
+
+
+
+

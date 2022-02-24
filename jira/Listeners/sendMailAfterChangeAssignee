@@ -1,0 +1,73 @@
+
+
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.fields.CustomField
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+import com.atlassian.jira.issue.*
+import com.atlassian.jira.event.issue.IssueEvent
+import com.sun.mail.imap.IMAPProvider
+import com.atlassian.mail.server.MailServerManager
+import com.atlassian.mail.server.SMTPMailServer
+import com.atlassian.mail.Email
+import com.atlassian.mail.queue.SingleMailQueueItem
+
+
+
+new SendEmailToAssignee().run(event)
+class SendEmailToAssignee {
+    
+    
+    Logger logger = Logger.getLogger(this.class.name)
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName("USERNAME")
+    ApplicationUser assignee
+    CustomField legalEntity = ComponentAccessor.customFieldManager.getCustomFieldObject(10500)
+    
+
+    
+    void run(IssueEvent event) {
+        logger.setLevel(Level.DEBUG)
+        MutableIssue issue = event.issue as MutableIssue
+        logger.debug "${issue.key} start listener for sent email Assignee after change legalEntity"
+        List<HashMap<String, Object>> changeItems = event.getChangeLog()?.getRelated("ChildChangeItem") as List<HashMap<String, Object>>;
+        if (changeItems) {
+            if(changeItems?.any() { it.field in ['legal entity']}) {
+                String legalEntityValue = issue.getCustomFieldValue(legalEntity)
+                String subject = "SUBJECT"
+                String body = "BODY"
+                logger.debug "send email to - ${issue.assignee.getEmailAddress()}, subject is - ${subject}, body is - ${body}"
+                sendMail(issue.assignee.getEmailAddress(), subject, body)
+            }
+            else logger.debug "No changes were detected"
+        }
+    }
+    
+    
+     static boolean sendMail(String emailAddr, String subject, String body) { // метод для отправки емейла 
+        def mailServer = ComponentAccessor.mailServerManager.defaultSMTPMailServer // Вызываем майл сервер
+        def wasAddedToQueue = false
+        if (mailServer) {
+            def mail = new Email(emailAddr)
+            mail.setSubject(subject)
+            mail.setBody(body)
+            mail.setMimeType("text/html")
+            def item = new SingleMailQueueItem(mail)
+            ComponentAccessor.mailQueue.addItem(item)
+            wasAddedToQueue = true
+        }
+        return wasAddedToQueue
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
