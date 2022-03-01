@@ -1,4 +1,6 @@
+import java.sql.Timestamp
+
 SimpleDateFormat dateFormat = new SimpleDateFormat("dd.MM.yyyy")
-		Date dateAdded = dateFormat.parse(dismissDate)
-        Timestamp timeStampDate = new Timestamp(dateAdded.getTime())
-        newTask.setCustomFieldValue(dismissDateCF, timeStampDate)
+Date dateAdded = dateFormat.parse(dismissDate)
+Timestamp timeStampDate = new Timestamp(dateAdded.getTime())
+newTask.setCustomFieldValue(dismissDateCF, timeStampDate)

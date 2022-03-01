@@ -25,7 +25,7 @@ for (String link : ss) {
 	for (String keyvalue : link.split("//")) {
     	prend.add(keyvalue)   
     }
-	//log.debug("Link is - ${link}")
+	//logger.debug("Link is - ${link}")
     if (end.containsKey(prend[0])) {
         List<String> copy = new ArrayList<>()
         copy = end.getAt(prend[0])
@@ -45,5 +45,5 @@ for (def key : end.keySet()) {
         for (int i = 0; i < values.size(); i++) {
             sl.add("'" + values[i] + "'"); 
         }
-    log.debug sl
+    logger.debug sl
 }
