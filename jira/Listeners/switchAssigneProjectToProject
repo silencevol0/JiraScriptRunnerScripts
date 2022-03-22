@@ -87,7 +87,7 @@ class _SendAssigneFromTo {
 			IssueLink issueLink = (IssueLink) outIterator.next()
  			String key = issueLink.getSourceObject().getKey()
  			logger.debug "Find Issue Link, key >>>>>> " + key
-            if (key.contains("CONTASKS")) {
+            if (key.contains("KEYPROJECT")) {
         		linkIssue = ComponentAccessor.getIssueManager().getIssueObject(key)
                 logger.debug "Trigerred issue key >>>> " + key
                 return linkIssue

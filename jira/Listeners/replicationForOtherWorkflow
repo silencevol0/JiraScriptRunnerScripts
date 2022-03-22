@@ -1,0 +1,102 @@
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.fields.CustomField
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+import com.atlassian.jira.issue.*
+import com.atlassian.jira.event.issue.IssueEvent
+import com.sun.mail.imap.IMAPProvider
+import com.atlassian.mail.server.MailServerManager
+import com.atlassian.mail.server.SMTPMailServer
+import com.atlassian.mail.Email
+import com.atlassian.mail.queue.SingleMailQueueItem
+import com.atlassian.jira.issue.link.IssueLink
+import com.atlassian.jira.workflow.TransitionOptions.Builder
+import com.atlassian.jira.bc.issue.IssueService
+import com.atlassian.jira.issue.comments.CommentManager
+import com.atlassian.jira.issue.changehistory.ChangeHistoryItem
+import com.atlassian.jira.issue.changehistory.ChangeHistoryManager
+import com.atlassian.jira.issue.history.ChangeItemBean
+
+
+
+new ReplicationStatusesToRecProject().run(event)
+class ReplicationStatusesToRecProject {
+    
+    
+    Logger logger = Logger.getLogger(this.class.name)
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName("USERNAME")
+    Issue sourceIssue
+	MutableIssue issue
+    ChangeHistoryManager historyManager = ComponentAccessor.changeHistoryManager
+    String statusForCheck = "CHECK NAME STATUS"
+    
+	void run(IssueEvent event) {
+		issue = event.issue as MutableIssue
+		List<ChangeItemBean> itemsStatus = historyManager.getChangeItemsForField(issue, "status")
+        int countForStatus = itemsStatus*.toString.findAll{it == statusForCheck}.size()
+        if ((countForStatus == 1 && issue.status.name == statusForCheck) || countForStatus == 0) {
+        	logger.setLevel(Level.DEBUG)
+        	logger.debug "${issue.key} start listener for change status"
+        	List<HashMap<String, Object>> changeItems = event.getChangeLog()?.getRelated("ChildChangeItem") as List<HashMap<String, Object>>;
+        	Map<String,Object> change = changeItems?.find{ it.field == "status"}
+        	if (change) {
+            	List<IssueLink> allOutIssueLink = ComponentAccessor.getIssueLinkManager().getInwardLinks(issue.getId())
+				logger.debug "All links in ${issue.key} is - ${allOutIssueLink}"
+				for (Iterator<IssueLink> outIterator = allOutIssueLink.iterator(); outIterator.hasNext();) {
+					IssueLink issueLink = (IssueLink) outIterator.next()
+                    logger.debug "${issue.key} now we sorting through all Links. Current link - ${issueLink}"
+ 					String key = issueLink.getSourceObject().getProjectObject().key
+    				if (key == "PROJECT KEY") {
+                        logger.debug ("Iterator issue links from ${issue.key} contains project key is - ${key}")
+        				sourceIssue = issueLink.getSourceObject()
+                    	if (transitIssue(sourceIssue,change.newstring.toString()) == false) {
+                        	logger.debug("${issue.key} Синхронизация была нарушена, статус не реплицирован. Оставлены комментарии, PROJECT KEY таска перешла в статус - 'STATUS NAME'")
+                        	sendComment(issue, "TEXT ")
+                        	sendComment(sourceIssue, """TEXT""")
+                        	transitIssue(sourceIssue, "TRANSIT NAME")
+                        	ComponentAccessor.getIssueLinkManager().removeIssueLink(issueLink,admin)
+                    	}
+    				}
+				}
+        	}
+    	}
+        else logger.debug "Task is finised replication, listener doesn't work."
+    }
+    
+    boolean transitIssue(Issue issue, String transitName){
+    	IssueService issueService = ComponentAccessor.getIssueService()
+        try {
+            def workflow = ComponentAccessor.workflowManager.getWorkflow(issue)
+    		int transitionID = workflow.getActionsByName(transitName).first().id
+    		Builder builder =  new Builder()
+    		def transopt = builder.skipConditions().skipValidators().skipPermissions()
+    		IssueService.TransitionValidationResult transitionValidationResult = issueService.validateTransition(admin, issue.getId(), transitionID, issueService.newIssueInputParameters(),transopt.build())
+    		logger.debug("${issue.key} ${transitionValidationResult.isValid()}")
+        	if (transitionValidationResult.isValid()) {
+            	IssueService.IssueResult transitionResult = issueService.transition(admin, transitionValidationResult)
+            	return true
+        	}
+        }
+        catch(Exception ex) {
+          return false  
+        }   
+	}
+
+    void sendComment(Issue issue, String comment) {
+		CommentManager commentManager = ComponentAccessor.getCommentManager()
+		commentManager.create(issue, admin,comment, true)
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
