@@ -96,3 +96,57 @@ class Class_ChangeStatus{
 }
 
 
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+/*
+    CloseableHttpResponse requestResult = SynchronizationHelper.postRequest(url, entity) - пример использования 
+    requestResult.statusLine.statusCode - получение кода ответа
+    requestResult.entity.content.text - получение тела ответа
+    */
+    CloseableHttpResponse postRequest(String url, HttpEntity entity){
+        log.debug "Send POST request to: ${url}"
+        //log.debug "We are in postrequest 1"
+        CloseableHttpClient httpClient
+        CloseableHttpResponse resp
+        try{
+            httpClient = HttpClientBuilder.create().build()
+            HttpPost httpPost = new HttpPost(url)
+            httpPost.setHeader("Authorization", MF_BASIC_AUTH)
+            httpPost.setHeader("Content-Type", "application/json")
+            httpPost.setEntity(entity)
+            //log.debug "We are in postrequest 2"
+            resp = httpClient.execute(httpPost)
+            //log.debug "We are in postrequest 3"
+		}
+        catch(Exception e){
+            log.error "POST error: ${e.message}"
+        }
+        finally{
+            log.debug "POST request to: ${url} done"
+            httpClient.close()
+            return resp
+        }
+    }
+
+    CloseableHttpResponse getRequest(String url){
+        log.debug "Send GET request to: ${url}"
+        CloseableHttpClient httpClient
+        CloseableHttpResponse resp
+        try{
+            httpClient = HttpClientBuilder.create().build()
+            HttpGet httpGet = new HttpGet(url)
+            httpGet.setHeader("Authorization", MF_BASIC_AUTH)
+            httpGet.setHeader("Content-Type", "application/json")
+            resp = httpClient.execute(httpGet)
+       	}
+        catch(Exception e){
+            log.error "GET error: ${e.message}"
+       	}
+        finally {
+            log.debug "GET request to: ${url} done"
+        	httpClient.close()
+            return resp
+    	}    
+    }
+}
