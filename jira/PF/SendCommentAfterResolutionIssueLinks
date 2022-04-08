@@ -1,5 +1,3 @@
-
-
 import com.atlassian.jira.issue.CustomFieldManager
 import com.atlassian.jira.component.ComponentAccessor
 import com.atlassian.jira.user.ApplicationUser
@@ -21,9 +19,9 @@ import java.util.Date
 
 
 
-//Issue issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUE KEY")
-new ProjectISD_SendCommentAfterResolutionIssueLinks().run(issue)
-class ProjectISD_SendCommentAfterResolutionIssueLinks {
+//Issue issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUEKEY")
+new SendCommentAfterResolutionIssueLinks().run(issue)
+class SendCommentAfterResolutionIssueLinks {
     
     Logger logger = Logger.getLogger(this.class.name)
     ApplicationUser admin = ComponentAccessor.userManager.getUserByName("USERNAME")
@@ -39,7 +37,7 @@ class ProjectISD_SendCommentAfterResolutionIssueLinks {
     void run(MutableIssue issue) {
         logger.setLevel(Level.DEBUG)
         findContaskIssue(issue)
-        if (checkCustomerRequestType(issue) == "CUSTOMER REQUEST TYPE") {
+        if (checkCustomerRequestType(issue) == "CUSTOMERREQUESTTYPE") {
         	String equipmentValue = issue.getCustomFieldValue(equipment)
             String trackNumberValue = issue.getCustomFieldValue(trackNumber)
             String body = ""
@@ -48,7 +46,15 @@ class ProjectISD_SendCommentAfterResolutionIssueLinks {
             if (trackNumberValue) body = body + "Трек номер - ${trackNumberValue} \n"
             if (body == "") body = "Данные оборудования, трек номер, а так же комментарий не были заполнены."
             sendComment(linkIssue, body)
-        } 
+        }
+        if (checkCustomerRequestType(issue) == "CUSTOMERREQUESTTYPE NEXT") {
+        	String loginValue = issue.getCustomFieldValue(login)
+            String body = ""
+            if (getTransitionComment(issue)) body = "Комментарий >>>> ${getTransitionComment(issue)} \n\n"
+            if (loginValue) body = body + "Логин - ${loginValue} \n"
+            if (body == "") body = "Данные логина, а так же комментарий не были заполнены."
+            sendComment(linkIssue, body)
+        }    
     }
 	
     String checkCustomerRequestType(MutableIssue issue) { 
@@ -63,7 +69,7 @@ class ProjectISD_SendCommentAfterResolutionIssueLinks {
  		for (IssueLink issueLink : allOutIssueLink) {
  			String key = issueLink.getSourceObject().getKey()
             logger.debug "${issue.key}: Find Issue Link, key >>>>>> " + key
-            if (key.contains("PROJECT KEY")) {
+            if (key.contains("PROJECTKEY")) {
         		linkIssue = ComponentAccessor.getIssueManager().getIssueObject(key)
                 logger.debug "${issue.key}: Trigerred issue key >>>> " + key
                 return linkIssue
@@ -72,7 +78,7 @@ class ProjectISD_SendCommentAfterResolutionIssueLinks {
     }
     
     void sendComment(MutableIssue linkIssue, String body) {
-        commentManager.create(linkIssue, admin, body, true)
+        commentManager.create(linkIssue, admin, body, false)
     }
     
     String getTransitionComment(MutableIssue issue) {
@@ -85,4 +91,12 @@ class ProjectISD_SendCommentAfterResolutionIssueLinks {
         else logger.debug "The comment was not created on the transition"
         
     }
-} 
+}
+
+
+
+
+
+
+
+
