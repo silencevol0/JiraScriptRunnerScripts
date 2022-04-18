@@ -1,0 +1,152 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.user.ApplicationUser
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import org.apache.http.entity.ContentType
+import org.apache.http.entity.StringEntity
+import org.apache.http.HttpEntity
+import org.apache.http.client.methods.HttpPost
+import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import groovy.json.JsonSlurper
+import org.apache.http.impl.client.HttpClientBuilder
+import com.fasterxml.jackson.databind.node.ObjectNode
+import org.apache.http.client.methods.CloseableHttpResponse
+import com.atlassian.jira.util.thread.JiraThreadLocalUtil
+import groovy.json.JsonSlurper
+import java.util.Date
+import java.sql.Timestamp
+import org.apache.http.impl.client.CloseableHttpClient
+import java.time.LocalDateTime
+import com.atlassian.jira.issue.customfields.manager.OptionsManager
+import com.atlassian.jira.issue.customfields.option.Option
+import com.atlassian.jira.issue.customfields.option.Options
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.fields.config.FieldConfig
+import tech.ProjectREC.RecHelper
+
+
+//MutableIssue issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUE KEY")
+
+new Class_CheckProbationPeriod().run(issue)
+
+
+class Class_CheckProbationPeriod{
+
+    ApplicationUser sysUser = ComponentAccessor.userManager.getUserByName("JIRA")
+    Logger log = Logger.getLogger(this.class)
+    //String apiUrl = "URL" // PROD
+    String apiUrl = "URL" // STAGE
+    final String USERNAME = "USERNAME"
+    final String PASSWORD = "PASSWORD"
+	String encodedLogin = Base64.getEncoder().encodeToString("${USERNAME}:${PASSWORD}".getBytes());
+    final String BASIC_AUTH = "Basic ${encodedLogin}"    
+    MutableIssue curIssue
+
+    
+    def run(MutableIssue issue) {
+        RecHelper recHelper = new RecHelper()
+        log.setLevel(Level.DEBUG)
+        log.debug("${issue.key} api for request is - ${apiUrl}")
+        curIssue = issue
+        
+        // ObjectsFields
+        
+        CustomField sourceIssueCF = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(11342)  
+        CustomField employeeIdCF = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(16215)
+        CustomField probationPeriodCF = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(16623)
+        
+        
+        // ValuesFields :
+        
+        Issue sourceIssue = curIssue.getCustomFieldValue(sourceIssueCF) as Issue
+        String employeeId = sourceIssue.getCustomFieldValue(employeeIdCF)
+		
+        // put in Field's map
+
+		if (employeeId == null) {
+            log.debug "ID сотрудника не найден, дальше скрипт не пойдет"
+            recHelper.sendComment(curIssue,"TEXT")
+            recHelper.sendMail("EMAIL", "SUBJECT","BODY")
+            return
+        }
+        
+        ObjectNode map = JsonNodeFactory.instance.objectNode()
+        
+        map.put("EmployeeID", employeeId)
+        
+    	HttpEntity entity = new StringEntity(map.toString(), ContentType.APPLICATION_JSON) as HttpEntity
+        CloseableHttpResponse createRequest = postRequest(apiUrl, entity)
+        String response = createRequest.entity.content.text
+        if (createRequest.statusLine.statusCode == 200) {
+            log.debug "${issue.key} status line to send1c request is - ${createRequest.statusLine.statusCode}. entity is - ${response}"
+            Map jsonResponse = ["error":null] as Map
+            jsonResponse = new JsonSlurper().parseText(response) as Map
+            String pattern = "yyyy-MM-ddhh:mm:ss"
+            String input = jsonResponse.ProbationEndDate
+            boolean workStatus = jsonResponse.IsWork
+            String replacedInput = input.replace("T","")
+			Date date = Date.parse(pattern,replacedInput)
+            Date currentDate = new Date()
+            log.debug "Date of Probation period - ${date} and current date is - ${currentDate} and workStatus is - ${workStatus}"
+            if (input == "0001-01-01T00:00:00" && workStatus == true) {
+                recHelper.sendComment(curIssue,"COMMENT")
+                curIssue.setCustomFieldValue(probationPeriodCF, setOption(probationPeriodCF,"Испытательный срок не установлен"))
+                recHelper.updateIssue(curIssue)
+            }
+            if (currentDate > date && workStatus == true) {
+                recHelper.sendComment(curIssue,"COMMENT")
+                curIssue.setCustomFieldValue(probationPeriodCF, setOption(probationPeriodCF,"Испытательный срок завершен"))
+                recHelper.updateIssue(curIssue)                
+            }
+            if (workStatus == false) {
+                curIssue.setCustomFieldValue(probationPeriodCF, setOption(probationPeriodCF,"Испытательный срок провален"))
+                recHelper.updateIssue(curIssue)
+            }
+        } 
+        if(createRequest.statusLine.statusCode != 200){
+            log.error "${issue.key} Error during remote request. Status line is - ${createRequest.statusLine.statusCode} entity is - ${response}"
+            curIssue.setCustomFieldValue(probationPeriodCF,setOption(probationPeriodCF, "Невозможно идентифицировать наличие испытательного срока"))
+            recHelper.updateIssue(curIssue)
+        }
+	}
+    
+    Option setOption(CustomField cf, String value) { 
+    	FieldConfig configCategory = cf.getRelevantConfig(curIssue)
+    	Options options = ComponentAccessor.optionsManager.getOptions(configCategory)
+    	Option option = options.find {it.value == value}
+    	return option
+	}
+    
+    /*
+    requestResult.statusLine.statusCode - получение кода ответа
+    requestResult.entity.content.text - получение тела ответа
+    */
+    
+    CloseableHttpResponse postRequest(String url, HttpEntity entity){
+        log.debug "Send POST request to: ${url}"
+        CloseableHttpClient httpClient
+        CloseableHttpResponse resp
+        try{
+            httpClient = HttpClientBuilder.create().build()
+            HttpPost httpPost = new HttpPost(url)
+            httpPost.setHeader("Authorization", BASIC_AUTH)
+            httpPost.setHeader("Content-Type", "application/json")
+            httpPost.setEntity(entity)
+            resp = httpClient.execute(httpPost)
+ 		}
+        catch(Exception e){
+            log.error "POST error: ${e.message}"
+        }
+        finally{
+            log.debug "POST request to: ${url} done"
+            httpClient.close()
+            return resp
+        }
+    }
+}
+
+

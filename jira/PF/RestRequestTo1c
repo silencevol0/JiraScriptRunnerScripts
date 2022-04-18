@@ -1,0 +1,144 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.user.ApplicationUser
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import org.apache.http.entity.ContentType
+import org.apache.http.entity.StringEntity
+import org.apache.http.HttpEntity
+import org.apache.http.client.methods.HttpPost
+import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import groovy.json.JsonSlurper
+import org.apache.http.impl.client.HttpClientBuilder
+import com.fasterxml.jackson.databind.node.ObjectNode
+import org.apache.http.client.methods.CloseableHttpResponse
+import com.atlassian.jira.util.thread.JiraThreadLocalUtil
+import groovy.json.JsonSlurper
+import java.util.Date
+import java.sql.Timestamp
+import org.apache.http.impl.client.CloseableHttpClient
+import java.time.LocalDateTime
+
+//MutableIssue issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUEKEY")
+
+new Class_SendDateTo1c().run(issue)
+
+
+class Class_SendDateTo1c{
+
+    ApplicationUser sysUser = ComponentAccessor.userManager.getUserByName("USERNAME")
+    Logger log = Logger.getLogger(this.class)
+    String apiUrl = "URL" // STAGE
+    final String USERNAME = "USERNAME"
+    final String PASSWORD = "PASSWORD"
+	String encodedLogin = Base64.getEncoder().encodeToString("${USERNAME}:${PASSWORD}".getBytes());
+    final String BASIC_AUTH = "Basic ${encodedLogin}"    
+    MutableIssue curIssue
+
+    
+    def run(MutableIssue issue) {
+        log.setLevel(Level.DEBUG)
+        log.debug("${issue.key} api for request is - ${apiUrl}")
+        curIssue = issue
+        
+        // ObjectsFields
+        
+        CustomField dateBegin = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(10407) 
+        CustomField login = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(12527) 
+        CustomField sizeReward = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(16212) 
+        CustomField paymentProcedure = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(16213) 
+        CustomField candidateName = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(13902) 
+        CustomField orgNameField = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(10500) 
+        CustomField category = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(16500) 
+        
+        
+        // ValuesFields :
+        
+        String currentDate = new Date().format("yyyy-MM-dd")
+        Calendar calendar = Calendar.getInstance()
+        calendar.setTime(new Date())
+        calendar.add(Calendar.MONTH, 3)
+        String dateAfterThreeMonth = calendar.getTime().format(("yyyy-MM-dd"))
+        String replaceSize = issue.getCustomFieldValue(sizeReward).toString().replaceAll("[^\\d]","")
+        Integer sum = Integer.parseInt(replaceSize)
+        int sum2 = sum / 2 as int
+        String orgName = issue.getCustomFieldValue(orgNameField)
+        String paymentProcedureValue = issue.getCustomFieldValue(paymentProcedure)
+        String candidateNameValue = issue.getCustomFieldValue(candidateName)
+        String categoryValue = issue.getCustomFieldValue(category)
+        int count = 2
+        if (paymentProcedureValue == "VALUE") count = 1
+        // put in Field's map
+       
+        ObjectNode map = JsonNodeFactory.instance.objectNode()
+
+        map.put("DateBegin", currentDate)
+        map.put("Login", curIssue.getReporter().username.toString())
+        map.put("Sum", sum)
+        map.put("OrganizationName", orgName)
+        map.put("RequestNumber", issue.key.toString())
+        def stagesArray = map.putArray("Stages")
+        def stagesList = stagesArray.addObject()
+        stagesList.put("Date", currentDate)
+        stagesList.put("RequestNumber", issue.key.toString())
+        stagesList.put("СandidateName", candidateNameValue.toString())
+        stagesList.put("Vacancy", issue.summary)
+        stagesList.put("Category", categoryValue)
+        if (count == 1) stagesList.put("Sum", sum2)
+        if (count == 2) stagesList.put("Sum", sum)
+        if (paymentProcedureValue == "VALUE") {
+        	stagesList = stagesArray.addObject()
+        	stagesList.put("Date", dateAfterThreeMonth)
+        	stagesList.put("RequestNumber", issue.key.toString())
+        	stagesList.put("СandidateName", candidateNameValue.toString())
+        	stagesList.put("Vacancy", issue.summary)
+        	stagesList.put("Category", categoryValue)
+        	if (count == 1) stagesList.put("Sum", sum2)
+        	if (count == 2) stagesList.put("Sum", sum)            
+        }
+        log.debug("${issue.key} field's map is - ${map}")
+        
+    	HttpEntity entity = new StringEntity(map.toString(), ContentType.APPLICATION_JSON) as HttpEntity
+        String lastErrorResponse = ""
+        CloseableHttpResponse createRequest = postRequest(apiUrl, entity)
+        if (createRequest.statusLine.statusCode == 200) {
+            log.debug "${issue.key} status line to send1c request is - ${createRequest.statusLine.statusCode}. entity is - ${createRequest.entity.content.text}"
+        } 
+        if(createRequest.statusLine.statusCode != 200){
+     	   lastErrorResponse = createRequest.entity.content.text
+           log.error "${issue.key} Error during remote request. Status line is - ${createRequest.statusLine.statusCode} entity is - ${lastErrorResponse}"
+        }
+	}
+    
+    /*
+    requestResult.statusLine.statusCode - получение кода ответа
+    requestResult.entity.content.text - получение тела ответа
+    */
+    
+    CloseableHttpResponse postRequest(String url, HttpEntity entity){
+        log.debug "Send POST request to: ${url}"
+        CloseableHttpClient httpClient
+        CloseableHttpResponse resp
+        try{
+            httpClient = HttpClientBuilder.create().build()
+            HttpPost httpPost = new HttpPost(url)
+            httpPost.setHeader("Authorization", BASIC_AUTH)
+            httpPost.setHeader("Content-Type", "application/json")
+            httpPost.setEntity(entity)
+            resp = httpClient.execute(httpPost)
+ 		}
+        catch(Exception e){
+            log.error "POST error: ${e.message}"
+        }
+        finally{
+            log.debug "POST request to: ${url} done"
+            httpClient.close()
+            return resp
+        }
+    }
+}
+
+
