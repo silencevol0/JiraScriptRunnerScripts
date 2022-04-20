@@ -1,0 +1,298 @@
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.user.ApplicationUser
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.link.LinkCollectionImpl
+import com.atlassian.jira.issue.link.IssueLink
+import com.atlassian.jira.bc.issue.IssueService
+import com.atlassian.jira.workflow.TransitionOptions.Builder
+import com.atlassian.jira.issue.IssueFactory
+import com.atlassian.jira.config.ConstantsManager
+import com.onresolve.scriptrunner.runner.customisers.WithPlugin
+import com.onresolve.scriptrunner.runner.customisers.PluginModule
+import com.atlassian.servicedesk.api.requesttype.RequestTypeService
+import com.atlassian.servicedesk.api.util.paging.SimplePagedRequest
+import com.atlassian.servicedesk.api.util.paging.PagedRequest
+import com.atlassian.servicedesk.api.requesttype.RequestType
+import com.atlassian.jira.issue.link.IssueLinkManager
+import com.atlassian.jira.project.ProjectManager
+import com.atlassian.jira.project.Project
+import com.atlassian.jira.bc.issue.search.SearchService
+import com.atlassian.jira.jql.parser.JqlQueryParser
+import com.atlassian.jira.web.bean.PagerFilter
+import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.HttpEntity
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.impl.client.HttpClientBuilder
+import org.apache.http.impl.client.CloseableHttpClient
+import groovy.json.JsonSlurper
+import com.fasterxml.jackson.databind.node.ObjectNode
+import org.apache.http.entity.StringEntity
+import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import org.apache.http.entity.ContentType
+import org.apache.http.client.methods.HttpGet
+import java.sql.Timestamp
+import java.text.SimpleDateFormat
+import com.atlassian.jira.issue.customfields.manager.OptionsManager
+import com.atlassian.jira.issue.customfields.option.Option
+import com.atlassian.jira.issue.customfields.option.Options
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.fields.config.FieldConfig
+import com.atlassian.jira.issue.index.IssueIndexingService
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.issue.comments.CommentManager
+import com.atlassian.mail.Email
+import com.atlassian.mail.queue.SingleMailQueueItem
+import com.sun.mail.imap.IMAPProvider
+import com.atlassian.mail.server.MailServerManager
+import com.atlassian.mail.server.SMTPMailServer
+
+//MutableIssue issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUEKEY")
+
+
+new Class_CLASS().run()
+class Class_CLASS {
+    
+    
+    Logger logger = Logger.getLogger(this.class.name)
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName("JIRA")
+    IssueLinkManager issueLinkManager = ComponentAccessor.issueLinkManager
+    IssueManager issueManager = ComponentAccessor.getIssueManager()
+    IssueService issueService = ComponentAccessor.getIssueService()
+    CommentManager commentManager = ComponentAccessor.getCommentManager()
+    ProjectManager projectManager = ComponentAccessor.getProjectManager()
+    JqlQueryParser jqlQueryParser = ComponentAccessor.getComponent(JqlQueryParser)
+    SearchService searchService = ComponentAccessor.getComponent(SearchService)
+    CustomField employeeIdCF = ComponentAccessor.customFieldManager.getCustomFieldObject(15712) 
+    CustomField loginCF = ComponentAccessor.customFieldManager.getCustomFieldObject(12527) 
+    CustomField idissue = ComponentAccessor.customFieldManager.getCustomFieldObject(16500)
+    CustomField endDate = ComponentAccessor.customFieldManager.getCustomFieldObject(10414) 
+    CustomField startDateNewCond = ComponentAccessor.customFieldManager.getCustomFieldObject(11202)
+    CustomField legalEntity = ComponentAccessor.customFieldManager.getCustomFieldObject(10500) 
+    CustomField post1c = ComponentAccessor.customFieldManager.getCustomFieldObject(13505) 
+    CustomField grade = ComponentAccessor.customFieldManager.getCustomFieldObject(10453) 
+    MutableIssue curIssue
+    MutableIssue linkIssue
+    String apiUrl = "URL" // PROD
+    final String USERNAME = "USERNAME"
+    final String PASSWORD = "PASSWORD"
+	String encodedLogin = Base64.getEncoder().encodeToString("${USERNAME}:${PASSWORD}".getBytes())
+    final String BASIC_AUTH = "Basic ${encodedLogin}"
+    
+    
+    def run() {
+        logger.setLevel(Level.DEBUG)
+
+        //JQL
+        
+        String jql = "JQ" // TEST
+    
+        def query = jqlQueryParser.parseQuery(jql) 
+        def results = searchService.search(admin, query, PagerFilter.getUnlimitedFilter())
+        def issues = results.results.collect {issueManager.getIssueObject(it.id)}
+        logger.debug("Total issues: ${results.total}") 
+        
+        // REST TO 1c
+        
+        ObjectNode map = JsonNodeFactory.instance.objectNode()
+        
+        map.put("DateStart", "2000-10-17")
+        map.put("DateEnd","2023-12-17")
+        
+    	HttpEntity entity = new StringEntity(map.toString(), ContentType.APPLICATION_JSON) as HttpEntity
+        CloseableHttpResponse createRequest = postRequest(apiUrl, entity)
+        String response = createRequest.entity.content.text
+        if (createRequest.statusLine.statusCode == 200) {
+            logger.debug "RequestStatusLine is - ${createRequest.statusLine.statusCode}."
+            Map jsonResponse = ["error":null] as Map
+            jsonResponse = new JsonSlurper().parseText(response) as Map
+            
+            // Issues Logic
+            
+            for (MutableIssue issue : issues) {
+            	curIssue = issue
+                //try { 
+                	logger.debug "Issue is - ${issue.key}, employeeId is - ${curIssue.getCustomFieldValue(employeeIdCF)}, login is - ${curIssue.getCustomFieldValue(loginCF)}"
+                	if (curIssue.getCustomFieldValue(employeeIdCF) != null) {
+                   		String employeeIdValue = curIssue.getCustomFieldValue(employeeIdCF)
+            			for (Object employee : jsonResponse) {
+                    		if (employee.getAt("EmployeeID_OLD") == employeeIdValue && employee.getAt("Company") == "VALUE") {
+                        		MutableIssue newIssue = createNewTask()
+                            	transitIssue(curIssue,"TRANSITION NAME")
+                            	logger.debug """End date in 1c is - ${employee.getAt("DismissalDate")}, RecruitmentDate is ${employee.getAt("RecruitmentDate")}, 
+                            	PositionId is - ${employee.getAt("PositionID")}, Grade is - ${employee.getAt("Grade")}, newEmloyeeId is - ${employee.getAt("EmployeeID")}"""
+                            	curIssue.setCustomFieldValue(endDate,setDate(employee.getAt("DismissalDate") as String))
+                            	newIssue.setCustomFieldValue(startDateNewCond,setDate(employee.getAt("RecruitmentDate") as String))
+                            	newIssue.setCustomFieldValue(legalEntity,setOption(legalEntity,"VALUE",newIssue))
+                            	newIssue.setCustomFieldValue(post1c, employee.getAt("PositionID") as String)
+                            	if (employee.getAt("Grade") == null) newIssue.setCustomFieldValue(grade, null)
+                            	else newIssue.setCustomFieldValue(grade,setOption(grade,employee.getAt("Grade") as String,newIssue))
+                            	newIssue.setCustomFieldValue(employeeIdCF,employee.getAt("EmployeeID"))
+                                newIssue.setAssignee(curIssue.assignee)
+                            	transitIssue(newIssue,"TRANSITION NAME")
+                            	updateIssue(curIssue)
+                            	updateIssue(newIssue)
+                    		}
+                		}
+            		}
+                	else if (curIssue.getCustomFieldValue(loginCF) != null) {
+                		String loginValue = curIssue.getCustomFieldValue(loginCF)
+                    	for (Object employee : jsonResponse) {
+                    		if (employee.getAt("Login") == loginValue && employee.getAt("Company") == "VALUE") {
+                    			MutableIssue newIssue = createNewTask()
+                            	transitIssue(curIssue,"TRANSITION NAME")
+                            	logger.debug """End date in 1c is - ${employee.getAt("DismissalDate")}, RecruitmentDate is ${employee.getAt("RecruitmentDate")}, 
+                            	PositionId is - ${employee.getAt("PositionID")}, Grade is - ${employee.getAt("Grade")}, newEmloyeeId is - ${employee.getAt("EmployeeID")}"""
+                            	curIssue.setCustomFieldValue(endDate,setDate(employee.getAt("DismissalDate") as String))
+                            	newIssue.setCustomFieldValue(startDateNewCond,setDate(employee.getAt("RecruitmentDate") as String))
+                            	newIssue.setCustomFieldValue(legalEntity,setOption(legalEntity,"VALUE",newIssue))
+                            	newIssue.setCustomFieldValue(post1c, employee.getAt("PositionID") as String)
+                            	if (employee.getAt("Grade") == null) newIssue.setCustomFieldValue(grade, null)
+                            	else newIssue.setCustomFieldValue(grade,setOption(grade,employee.getAt("Grade") as String,newIssue))
+                            	newIssue.setCustomFieldValue(employeeIdCF,employee.getAt("EmployeeID"))
+                                newIssue.setAssignee(curIssue.assignee)
+                            	transitIssue(newIssue,"TRANSITION NAME")
+                            	updateIssue(curIssue)
+                            	updateIssue(newIssue)
+                    		} 
+                		}
+                	}   
+            	//}
+                //catch (Exception e) {
+        			//logger.debug(e)
+                    //String comment = "Скрипт на кадровые изменения дал сбой на этой задаче"
+                    //commentManager.create(curIssue, admin,comment, false)
+            		//sendMail(e.toString())
+    			//}       
+            }
+   		}
+    }
+ 
+    def transitIssue(Issue issue, String transitName){
+    	def workflow = ComponentAccessor.workflowManager.getWorkflow(issue)
+    	int transitionID = workflow.getActionsByName(transitName).first().id
+    	Builder builder =  new Builder()
+    	def transopt = builder.skipConditions().skipValidators().skipPermissions()
+    	IssueService.TransitionValidationResult transitionValidationResult = issueService.validateTransition(admin, issue.getId(), transitionID, issueService.newIssueInputParameters(),transopt.build())
+        if (transitionValidationResult.isValid()) {
+            IssueService.IssueResult transitionResult = issueService.transition(admin, transitionValidationResult)	
+        }
+	}
+            
+	MutableIssue createNewTask() {
+		IssueFactory issueFactory = ComponentAccessor.getIssueFactory()
+		ConstantsManager constantManager = ComponentAccessor.getConstantsManager()
+		MutableIssue newTask = issueFactory.getIssue()
+        if (curIssue.getDescription()) newTask.setDescription(curIssue.getDescription())
+    	if (curIssue.summary) newTask.setSummary(curIssue.summary)
+		newTask.setProjectObject(ComponentAccessor.getProjectManager().getProjectByCurrentKey("PROJECT KEY"))
+        newTask.setIssueTypeId(curIssue.getIssueTypeId())
+        newTask.setReporter(curIssue.reporter)
+        //newTask.setAssignee(curIssue.assignee)
+        newTask.setPriority(curIssue.getPriority())
+        newTask.setSecurityLevelId(curIssue.getSecurityLevelId())
+        newTask.setLabels(curIssue.getLabels())
+        List<Integer> fieldIds = [15707,10403,13022,10462,12212,10510,10500,13601,10456,16004,12700,12804,
+                                  11205,11936,10440,12105,10407,10458,13505,10920,12213,12614,16500,
+                                  12616,10453,10504,10459,16400,13901,10406,10401,10410,10400,12251,10502,
+                                  13307,13309,10802,10803,10805,10934,10935,11007,11100,10101,16100,16101,
+                                  15228,11005,11801,11929,15900,12234,12527,12222,13107,12235,14402,14403,
+                                  11717,14601,15801,15904,16017,16801,16800,16016,10457,11501,10511,
+                                  10509,11102,11323,11931,11800,11712,15712]
+    	for(String fieldId : fieldIds) {
+        	CustomField customField = ComponentAccessor.customFieldManager.getCustomFieldObject(fieldId as long)
+            logger.debug "customField is - ${customField} and customFieldID is - ${fieldId}, and CFValue is - ${curIssue.getCustomFieldValue(customField)}"
+            if (curIssue.getCustomFieldValue(customField)) {
+                def cFieldValue = curIssue.getCustomFieldValue(customField)
+        		if (cFieldValue != null) {
+            		newTask.setCustomFieldValue(customField,cFieldValue)
+        		}
+            }	
+    	}
+        logger.debug("New issue ${newTask}")
+    	Map<String,Object> newIssueParams = ["issue" : newTask] as Map<String,Object>   
+        newTask = issueManager.createIssueObject(admin, newIssueParams) as MutableIssue
+        logger.debug "Issue with summary ${newTask.summary} created > issue key > ${newTask.key}"
+        issueLinkManager.createIssueLink(newTask.id, curIssue.id, 10001l, null ,admin)
+        return newTask      
+    }
+    
+    CloseableHttpResponse postRequest(String url, HttpEntity entity){
+        logger.debug "Send POST request to: ${url}"
+        CloseableHttpClient httpClient
+        CloseableHttpResponse resp
+        try{
+            httpClient = HttpClientBuilder.create().build()
+            HttpPost httpPost = new HttpPost(url)
+            httpPost.setHeader("Authorization", BASIC_AUTH)
+            httpPost.setHeader("Content-Type", "application/json")
+            httpPost.setEntity(entity)
+            resp = httpClient.execute(httpPost)
+ 		}
+        catch(Exception e){
+            logger.error "POST error: ${e.message}"
+        }
+        finally{
+            logger.debug "POST request to: ${url} done"
+            //httpClient.close()
+            return resp
+        }
+    }
+    
+    Timestamp setDate(String input) {
+        String replacedInput = input.replace("T","")
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-ddhh:mm:ss")
+		Date dateAdded = dateFormat.parse(replacedInput)
+		Timestamp timeStampDate = new Timestamp(dateAdded.getTime())
+        return timeStampDate
+    }
+    
+    Option setOption(CustomField cf, String value, Issue issue) { 
+    	FieldConfig configCategory = cf.getRelevantConfig(issue)
+    	Options options = ComponentAccessor.optionsManager.getOptions(configCategory)
+    	Option option = options.find {it.value == value}
+    	return option
+	}
+    
+    void updateIssue(MutableIssue issue) {
+    	ComponentAccessor.getIssueManager().updateIssue(admin,issue,EventDispatchOption.DO_NOT_DISPATCH,true)
+    	IssueIndexingService indexing = (IssueIndexingService) ComponentAccessor.getComponent(IssueIndexingService.class)
+    	indexing.reIndex(issue)
+	}
+    
+    boolean sendMail(String e) {  
+        def mailServer = ComponentAccessor.mailServerManager.defaultSMTPMailServer 
+        def wasAddedToQueue = false
+        if (mailServer) {
+            def mail = new Email("MAIL")
+            mail.setSubject("Ошибка в кадровых изменениях ${curIssue.key}")
+            mail.setBody("Что то пошло не так, ${e}")
+            mail.setMimeType("text/html")
+            def item = new SingleMailQueueItem(mail)
+            ComponentAccessor.mailQueue.addItem(item)
+            wasAddedToQueue = true
+        }
+        return wasAddedToQueue
+    }
+    
+    Issue findEmployeeTask(MutableIssue issue) {
+        List<IssueLink> allOutIssueLink = ComponentAccessor.getIssueLinkManager().getInwardLinks(issue.getId())
+ 		for (Iterator<IssueLink> outIterator = allOutIssueLink.iterator(); outIterator.hasNext();) {
+			IssueLink issueLink = (IssueLink) outIterator.next()
+ 			String key = issueLink.getSourceObject().getKey()
+ 			logger.debug "Find Issue Link, key >>>>>> " + key
+            if (key.contains("PROJECT KEY")) {
+        		linkIssue = ComponentAccessor.getIssueManager().getIssueObject(key)
+                logger.debug "Trigerred issue key >>>> " + key
+                return linkIssue
+            }
+ 		}
+    }
+    
+}
+

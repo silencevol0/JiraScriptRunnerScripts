@@ -65,7 +65,7 @@ class Class_CheckProbationPeriod{
         Issue sourceIssue = curIssue.getCustomFieldValue(sourceIssueCF) as Issue
         String employeeId = sourceIssue.getCustomFieldValue(employeeIdCF)
 		
-        // put in Field's map
+        // put in Fields map
 
 		if (employeeId == null) {
             log.debug "ID сотрудника не найден, дальше скрипт не пойдет"
