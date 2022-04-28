@@ -1,0 +1,48 @@
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import com.onresolve.jira.groovy.user.FormField
+import groovy.transform.BaseScript
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.customfields.manager.OptionsManager
+import com.atlassian.jira.issue.customfields.option.Option
+import com.atlassian.jira.issue.customfields.option.Options
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.fields.config.FieldConfig
+@BaseScript FieldBehaviours fieldBehaviours
+
+
+FormField PST = getFieldById("customfield_10462") 
+FormField team = getFieldById("customfield_16712") 
+FormField stream = getFieldById("customfield_16711") 
+FormField program = getFieldById("customfield_16709") 
+CustomField PSTCF = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(10462)
+CustomField teamСF = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(16709)
+CustomField streamCF = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(16711)
+FieldConfig configTeam = teamСF.getConfigurationSchemes()[0].configs.values()[0]
+FieldConfig configPST = PSTCF.getConfigurationSchemes()[0].configs.values()[0]
+Options options = ComponentAccessor.getOptionsManager().getOptions(configPST)
+Map optionsMap = new HashMap()
+String streamValue = stream.getValue()
+String programValue = program.getValue()
+Option programOption = ComponentAccessor.optionsManager.getOptions(configPST).find{ it.value==programValue }
+Option childOptions = programOption.getChildOptions().find{it.value == streamValue}
+List<Option> childOptionsTeam = childOptions.getChildOptions()
+
+if (!childOptionsTeam.isEmpty()) {
+    team.setHidden(false)
+	for (Option childOption : childOptionsTeam) {
+		Option sameOption = ComponentAccessor.optionsManager.getOptions(configTeam).find{ it.value==childOption.value }
+		if (!sameOption){
+			ComponentAccessor.optionsManager.createOption(configTeam,0,1,childOption.value) 
+        	FieldConfig newConfigTeam = teamСF.getConfigurationSchemes()[0].configs.values()[0]
+        	sameOption = ComponentAccessor.optionsManager.getOptions(newConfigTeam).find{ it.value==childOption.value }
+		}
+    	optionsMap.put(sameOption.getOptionId(),sameOption.getValue())
+	}
+	team.setFieldOptions(optionsMap)
+	//team.setFormValue(optionsMap.keySet().first())    
+}
+else {
+    team.setFormValue(null)
+	team.setHidden(true)
+}
+
