@@ -16,7 +16,7 @@ updateIssue(issue)
 
 
 void updateIssue(MutableIssue issue) {
-    ComponentAccessor.getIssueManager().updateIssue(admin,issue,EventDispatchOption.DO_NOT_DISPATCH,true)
+    ComponentAccessor.getIssueManager().updateIssue(admin,issue,EventDispatchOption.DO_NOT_DISPATCH,false)
     IssueIndexingService indexing = (IssueIndexingService) ComponentAccessor.getComponent(IssueIndexingService.class)
     indexing.reIndex(issue)
 }
