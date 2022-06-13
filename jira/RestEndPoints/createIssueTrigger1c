@@ -1,0 +1,201 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.config.IssueTypeManager
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.IssueFactory
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.customfields.manager.OptionsManager
+import com.atlassian.jira.issue.customfields.option.Option
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.user.ApplicationUser
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import com.onresolve.scriptrunner.runner.customisers.WithPlugin
+import groovy.json.JsonSlurper
+import groovy.transform.BaseScript
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import javax.ws.rs.core.MultivaluedMap
+import javax.ws.rs.core.Response
+import javax.ws.rs.core.MediaType
+import com.atlassian.jira.bc.issue.search.SearchService
+import com.atlassian.jira.jql.parser.JqlQueryParser
+import com.atlassian.jira.web.bean.PagerFilter
+import com.atlassian.jira.mail.Email
+import com.atlassian.mail.queue.SingleMailQueueItem
+import com.atlassian.jira.config.ConstantsManager
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.customfields.option.Options
+import com.atlassian.jira.issue.customfields.option.Option
+import java.util.Date
+import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.sql.Timestamp
+import com.atlassian.jira.issue.index.IssueIndexingService
+import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import com.fasterxml.jackson.databind.node.ObjectNode
+
+
+@BaseScript CustomEndpointDelegate delegate
+createIssueOLProject(httpMethod: "POST", groups: ["jira-administrators"]) { 
+    MultivaluedMap queryParams, String body ->
+	new Сlass_ProjectOL_CreateIssue().run(body)
+}
+
+class Сlass_ProjectOL_CreateIssue {
+    JqlQueryParser jqlQueryParser = ComponentAccessor.getComponent(JqlQueryParser) 
+    SearchService searchService = ComponentAccessor.getComponent(SearchService) 
+    IssueManager issueManager = ComponentAccessor.getIssueManager()  
+    CustomFieldManager customFieldManager = ComponentAccessor.customFieldManager
+    ApplicationUser admin = ComponentAccessor.getUserManager().getUserByName("USERNAME")
+    List<Integer> cfIds = [13022,10462,10500,13505,10920,10453,14919,10401,10410,10400,10502,10802,10803,11100,11005,12527]
+	CustomField dismissDateCF = ComponentAccessor.customFieldManager.getCustomFieldObject(10414)
+    CustomField loginCF = ComponentAccessor.customFieldManager.getCustomFieldObject(12527)
+	CustomField userIdCF = ComponentAccessor.customFieldManager.getCustomFieldObject(15712)
+    
+    Logger log = Logger.getLogger(this.class.name)
+    String login
+    String dismissDate
+    String boss
+    String userId
+    String issuekey
+    MutableIssue curIssue
+    MutableIssue newIssue
+    List<ApplicationUser> bossFirst = new ArrayList()
+
+    def run(String body) {
+        log.setLevel(Level.DEBUG)
+        long scriptStartTime = System.currentTimeMillis()
+        Object parsedBody = new JsonSlurper().parseText(body)
+        log.debug("[Run] accepted request body: ${parsedBody}")
+        login = parsedBody["login"]
+        dismissDate = parsedBody["dismissDate"]
+        boss = parsedBody["supervisor"]
+        userId = parsedBody["userID"]
+        issuekey = parsedBody["issuekey"]
+        
+        ObjectNode map = JsonNodeFactory.instance.objectNode()
+        
+		map.put("userID", userId)
+        map.put("dismissDate", dismissDate)
+        
+        
+        log.debug "${login} <<<<<< login, ${dismissDate} <<<<< dismissDate, ${boss} <<<< supervisor, ${userId} <<< UserId, ${issuekey} <<<< issueKey"
+        String jqlCONT = """JQL"""
+        if (issuekey != "" && login && dismissDate && boss && userId) {
+        	Issue forUpdateIssue = issueManager.getIssueObject(issuekey)
+            SimpleDateFormat dateFormat = new SimpleDateFormat("dd.MM.yyyy")
+            Date dateAdded = dateFormat.parse(dismissDate)
+        	Timestamp timeStampDate = new Timestamp(dateAdded.getTime())
+            forUpdateIssue.setCustomFieldValue(loginCF,login)
+            forUpdateIssue.setCustomFieldValue(dismissDateCF,timeStampDate)    
+            forUpdateIssue.setCustomFieldValue(userIdCF,userId)   
+            ComponentAccessor.issueManager.updateIssue(admin,forUpdateIssue,EventDispatchOption.DO_NOT_DISPATCH,false)
+    		IssueIndexingService indexing = (IssueIndexingService) ComponentAccessor.getComponent(IssueIndexingService.class)
+    		indexing.reIndex(forUpdateIssue)
+            log.debug "Задача уже была создана, логин и дата обновлены ${forUpdateIssue.key}"
+            map.put("issuekey",forUpdateIssue.key)
+			return Response.status(200).type(MediaType.APPLICATION_JSON).entity("${map}").build()         
+   //         else return Response.status(203).type(MediaType.APPLICATION_JSON).entity("Employee card not found").build()
+            //sendMail("Ошибка в скрипте Сlass_ProjectOL_CreateIssue", "Карточка сотрудника не была найдена - ${jqlCONT}") 
+        }
+        else if (login && dismissDate && boss && userId) {
+            if(searchIssue("and 'ID сотрудника' ~ '${userId}'", jqlCONT) != null) {
+                curIssue = searchIssue("and 'ID сотрудника' ~ '${userId}'", jqlCONT)
+                newIssue = createNewTasks()
+                log.debug "Новая задача создана с использованием UserID"
+                map.put("issuekey",newIssue.key)
+                return Response.status(200).type(MediaType.APPLICATION_JSON).entity("${map}").build() 
+            }
+            else if (searchIssue("and Логин ~ ${login}", jqlCONT) != null) {
+                curIssue = searchIssue("and Логин ~ ${login}", jqlCONT)
+                newIssue = createNewTasks()
+                log.debug "Новая задача создана с использованием Login"
+                map.put("issuekey",newIssue.key)
+                return Response.status(200).type(MediaType.APPLICATION_JSON).entity("${map}").build() 
+            }
+            else {
+                sendMail("Ошибка в скрипте Сlass_ProjectOL_CreateIssue", "Карточка сотрудника не была найдена - ${jqlCONT}") 
+                return Response.status(203).type(MediaType.APPLICATION_JSON).entity("Employee card not found").build()
+            }
+        }
+        else {
+            log.debug("${curIssue.getKey()}: [Run] input parameters cannot be parsed!")
+			sendMail("Ошибка в скрипте Сlass_ProjectOL_CreateIssue", "Какой то неправильный рест пришел, посмотри >>>>>>>>> ${parsedBody}") 
+			return Response.status(204).type(MediaType.TEXT_HTML).entity("The data came in an invalid format").build()
+        }
+        long scriptWorkTime = System.currentTimeMillis() - scriptStartTime
+        log.debug("${curIssue.getKey()}: [Run] script work time: ${scriptWorkTime} ms.")
+    }
+    
+    MutableIssue searchIssue(String loginOrId, String jql) {
+        log.debug "${loginOrId} <<<< loginOrId, jql >>>> ${jql}"
+        String newJQL = jql + loginOrId
+        log.debug ("newJql >>> ${newJQL}")
+        def query = jqlQueryParser.parseQuery(newJQL) 
+        def results = searchService.search(admin, query, PagerFilter.getUnlimitedFilter())
+        def issues = results.results.collect {issueManager.getIssueObject(it.id)}
+        log.debug("Total issues: ${results.total}")
+        if (issues.size() == 1) {
+            return issues.first()
+        }
+        else {
+        	sendMail("Ошибка в скрипте Сlass_ProjectOL_CreateIssue", "Поиск по JQL дал больше или меньше одной задачи. JQL >>>> ${newJQL}, Total count >>> ${results.total}") 
+            return null
+        }
+           
+    }
+
+ 	static boolean sendMail(String subject, String body) { 
+        def mailServer = ComponentAccessor.mailServerManager.defaultSMTPMailServer
+        def wasAddedToQueue = false
+        if (mailServer) {
+            def mail = new Email("EMAIL")
+            mail.setSubject(subject)
+            mail.setBody(body)
+            mail.setMimeType("text/html")
+            def item = new SingleMailQueueItem(mail)
+            ComponentAccessor.mailQueue.addItem(item)
+            wasAddedToQueue = true
+        }
+        return wasAddedToQueue
+    }
+    
+    MutableIssue createNewTasks() {
+		IssueFactory issueFactory = ComponentAccessor.getIssueFactory()
+		ConstantsManager constantManager = ComponentAccessor.getConstantsManager()
+		MutableIssue newTask = issueFactory.getIssue()
+    	newTask.setSummary(curIssue.getSummary())
+		newTask.setProjectObject(ComponentAccessor.getProjectManager().getProjectByCurrentKey("OL"))
+    	newTask.setIssueTypeId(constantManager.getAllIssueTypeObjects().find{it.getName() == "Task"}.id)
+		SimpleDateFormat dateFormat = new SimpleDateFormat("dd.MM.yyyy")
+		Date dateAdded = dateFormat.parse(dismissDate)
+        Timestamp timeStampDate = new Timestamp(dateAdded.getTime())
+        newTask.setCustomFieldValue(dismissDateCF, timeStampDate)
+        //newTask.setAssignee(curIssue.assignee)
+        newTask.setReporter(admin)
+        for (Integer id : cfIds) {
+            CustomField customField = ComponentAccessor.customFieldManager.getCustomFieldObject(id)
+            def cFValue = curIssue.getCustomFieldValue(customField)
+            log.debug("CF >>>> ${customField} cfValue >>>> ${cFValue} CFId >>>>> ${id} CFType >>>>>>> ${customField.getCustomFieldType().name}")
+            if (customField.getCustomFieldType().name in ["Выпадающий список (одиночный выбор)","Переключатель"] && cFValue) {
+                newTask.setCustomFieldValue(customField, setOption(customField,cFValue))
+            }
+            if (cFValue) newTask.setCustomFieldValue(customField, cFValue)
+        }
+        log.debug("New issue ${newTask}")
+    	Map<String,Object> newIssueParams = ["issue" : newTask] as Map<String,Object>   
+        newTask = issueManager.createIssueObject(admin, newIssueParams) as MutableIssue
+        log.debug "Issue with summary ${newTask.summary} created > issue key > ${newTask.key}"
+        return newTask      
+    }
+    
+    Integer setOption(CustomField cf, def value) {
+    	def fieldConfig = cf.getConfigurationSchemes()[0].configs.values()[0] 
+		Options optionsInField = ComponentAccessor.optionsManager.getOptions(fieldConfig)
+    	Option sameOption = optionsInField.find{it.value==value}
+    	if (sameOption){
+   			return sameOption.optionId
+    	}
+	}
+}

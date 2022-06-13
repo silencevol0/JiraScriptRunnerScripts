@@ -1,0 +1,89 @@
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.fields.CustomField
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+import com.atlassian.jira.issue.*
+import com.atlassian.jira.event.issue.IssueEvent
+import com.sun.mail.imap.IMAPProvider
+import com.atlassian.mail.server.MailServerManager
+import com.atlassian.mail.server.SMTPMailServer
+import com.atlassian.mail.Email
+import com.atlassian.mail.queue.SingleMailQueueItem
+import com.atlassian.jira.issue.link.IssueLink
+import com.atlassian.jira.workflow.TransitionOptions.Builder
+import com.atlassian.jira.bc.issue.IssueService
+import com.atlassian.jira.issue.comments.CommentManager
+import com.atlassian.jira.issue.changehistory.ChangeHistoryItem
+import com.atlassian.jira.issue.changehistory.ChangeHistoryManager
+import com.atlassian.jira.issue.history.ChangeItemBean
+import com.atlassian.jira.event.type.EventType
+import com.atlassian.jira.issue.comments.CommentManager
+
+
+new SendCommentToONBOARD().run(event)
+class SendCommentToONBOARD {
+    
+    
+    Logger logger = Logger.getLogger(this.class.name)
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName("JIRA")
+	MutableIssue issue
+    String STATUS_FOR_CHECK = "Waiting for customer"
+    ApplicationUser author
+    String commentBody
+    MutableIssue onIssue
+    
+	void run(IssueEvent event) {
+        logger.setLevel(Level.DEBUG)
+		issue = event.issue as MutableIssue
+        onIssue = findOnboardIssue(issue)
+		if (onIssue == null) return
+        if (event.eventTypeId == EventType.ISSUE_GENERICEVENT_ID) {
+            logger.debug "ISSUE GENERIC EVENT"
+			List<HashMap<String, Object>> changeItems = event.getChangeLog()?.getRelated("ChildChangeItem") as List<HashMap<String, Object>>;
+        	if (changeItems) {
+                if(changeItems?.any() { it.field in ['status']}) {
+                    HashMap<String,Object> item = changeItems.find { it.field in ['status']}
+                    logger.debug item.newstring
+                    if (item.newstring == STATUS_FOR_CHECK) {
+                        logger.debug "Event comment author is >>>>> ${event.comment.authorApplicationUser.toString()} and Event comment body is >>>>>>> ${event.comment.body}"
+                        if(event.comment) author = event.comment.getUpdateAuthorApplicationUser()
+                        if(event.comment) commentBody = event.comment.body
+                        try {
+                            ComponentAccessor.getCommentManager().create(onIssue, author,commentBody, true)
+                        }
+                        catch (Exception e) {
+                            ComponentAccessor.getCommentManager().create(onIssue, admin,commentBody, true)
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (event.eventTypeId == EventType.ISSUE_COMMENTED_ID) {
+            logger.debug "ISSUE COMMENTED EVENT, Issue status is >>> ${issue.status.name}"
+            if (issue.getStatus().name == STATUS_FOR_CHECK) {
+                if(event.comment) author = event.comment.authorApplicationUser
+                if(event.comment) commentBody = event.comment.body
+                try {
+                    logger.debug "block try is finished ${onIssue.key}"
+                	ComponentAccessor.getCommentManager().create(onIssue, author,commentBody, true)
+                }
+                catch (Exception e) {
+                    logger.debug "block catch is finished ${onIssue.key}"
+                    ComponentAccessor.getCommentManager().create(onIssue, admin,commentBody, true)
+                }
+            }
+        }
+  		else logger.debug "Listener doesn't work with this requirements."
+    }
+    
+	MutableIssue findOnboardIssue(MutableIssue issue) {
+        Collection<MutableIssue> allLinkIssues = ComponentAccessor.getIssueLinkManager().getLinkCollectionOverrideSecurity(issue).getAllIssues() as Collection<MutableIssue>
+        logger.debug "Collection Issues - >>>  ${allLinkIssues}"
+        onIssue = allLinkIssues.find{it.getProjectObject().getKey() == "ONBOARD"}
+        logger.debug "sec issue is >>>> ${onIssue}"
+ 		return onIssue
+    }
+}   

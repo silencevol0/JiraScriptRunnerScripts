@@ -1,0 +1,70 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.fields.config.manager.IssueTypeSchemeManager
+import com.atlassian.jira.issue.issuetype.IssueType
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.user.util.UserManager
+import com.atlassian.jira.workflow.JiraWorkflow
+import com.atlassian.jira.workflow.WorkflowManager
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.issue.index.IssueIndexingService
+import com.atlassian.jira.util.ImportUtils
+import com.atlassian.jira.issue.fields.CustomField
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import com.atlassian.jira.user.util.UserManager
+import com.onresolve.scriptrunner.runner.customisers.PluginModule
+import com.onresolve.scriptrunner.runner.customisers.WithPlugin
+import com.riadalabs.jira.plugins.insight.services.model.ObjectBean
+import com.riadalabs.jira.plugins.insight.channel.external.api.facade.IQLFacade
+
+//Issue issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUEKEY")
+
+Class_IssueMove script = new Class_IssueMove()
+script.run(issue)
+
+public class Class_IssueMove {
+    Logger log = Logger.getLogger(this.class)
+    CustomFieldManager customFieldManager = ComponentAccessor.getCustomFieldManager()
+    IssueTypeSchemeManager issueTypeSchemeManager = ComponentAccessor.getIssueTypeSchemeManager()
+    WorkflowManager workflowManager = ComponentAccessor.getWorkflowManager()
+    IssueManager issueManager = ComponentAccessor.getIssueManager()
+    UserManager userManager = ComponentAccessor.getUserManager()
+
+    void run(MutableIssue issue) {
+        ApplicationUser adminUser = userManager.getUserByName("USERNAME")
+        Collection<IssueType> issueTypes = issueTypeSchemeManager.getIssueTypesForProject(issue.getProjectObject())
+        String issueType = "ISSUE TYPE NAME"
+        IssueType targetType
+        for (IssueType issuetype: issueTypes) {
+            if (issuetype.getName().toLowerCase() == issueType.toLowerCase()) {
+                targetType = issuetype
+            }
+        }
+        log.debug "targetType is ${targetType}"
+        if (targetType) {
+            JiraWorkflow oldWorkflow = workflowManager.getWorkflow(issue)
+            issue.setIssueTypeObject(targetType)
+            issueManager.updateIssue(adminUser, issue, EventDispatchOption.DO_NOT_DISPATCH, false)
+            JiraWorkflow newWorkflow = workflowManager.getWorkflow(issue)
+            log.debug("${issue}: Migrating ${oldWorkflow.name} -> ${newWorkflow.name}")
+            workflowManager.migrateIssueToWorkflow(issue, newWorkflow, issue.getStatus())
+            reindexIssue(issue)
+
+            log.debug("${issue}: issue type updated")
+        } else {
+            log.debug ("${issue}: can't get type ${issueType}")
+        }
+    }
+
+
+    public void reindexIssue(MutableIssue someIssue) {
+        boolean wasIndexing = ImportUtils.isIndexIssues()
+        ImportUtils.setIndexIssues(true)
+        ComponentAccessor.getComponent(IssueIndexingService.class).reIndex(someIssue)
+        ImportUtils.setIndexIssues(wasIndexing)
+    }
+}

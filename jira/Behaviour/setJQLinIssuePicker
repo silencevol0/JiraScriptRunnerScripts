@@ -1,0 +1,7 @@
+import com.onresolve.jira.groovy.user.FormField
+
+FormField vacancyIssueField = getFieldById("customfield_11342")
+def vacancyValue = vacancyIssueField.getValue()
+
+def jql = """JQL"""
+vacancyIssueField.setConfigParam('currentJql', jql)

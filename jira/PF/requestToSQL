@@ -1,0 +1,27 @@
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.user.util.UserManager
+import groovy.sql.Sql
+import org.ofbiz.core.entity.ConnectionFactory
+import org.ofbiz.core.entity.DelegatorInterface
+
+
+import java.sql.Connection
+import java.sql.Timestamp
+
+
+ CustomFieldManager customFieldManager = ComponentAccessor.getCustomFieldManager()
+ DelegatorInterface delegator = (DelegatorInterface) ComponentAccessor.getComponent(DelegatorInterface)
+ String helperName = delegator.getGroupHelperName("default");
+
+Connection conn = ConnectionFactory.getConnection(helperName)
+Sql sql = new Sql(conn)
+def userLogin = ComponentAccessor.getUserManager().getUserByName("JIRA").getUsername()
+def prid = 11301
+//def rows = sql.executeUpdate("UPDATE jiraschema.jiraissue SET SUMMARY = 'TEST request'  WHERE ID = 346474")////'SELECT * FROM jiraschema.project'
+def rows = sql.rows('SELECT * FROM jiraschema.jiraissue WHERE issuenum = 1264 AND PROJECT = 11301')////'SELECT * FROM jiraschema.project'
+rows.each{
+    log.error(it.SUMMARY)
+    log.error(it.ID)
+}
+sql.close()

@@ -1,0 +1,19 @@
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.bc.issue.search.SearchService
+import com.atlassian.jira.jql.parser.JqlQueryParser
+import com.atlassian.jira.web.bean.PagerFilter
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.query.Query
+import com.atlassian.jira.issue.search.SearchResults
+
+
+IssueManager issueManager = ComponentAccessor.getIssueManager()
+ApplicationUser admin = ComponentAccessor.userManager.getUserByName("USERNAME")
+JqlQueryParser jqlQueryParser = ComponentAccessor.getComponent(JqlQueryParser)
+SearchService searchService = ComponentAccessor.getComponent(SearchService)
+String jql = """JQL'""" 
+Query query = jqlQueryParser.parseQuery(jql) 
+SearchResults results = searchService.search(admin, query, PagerFilter.getUnlimitedFilter())
+Collection<MutableIssue> issues = results.results.collect {issueManager.getIssueObject(it.id)} as Collection<MutableIssue>
