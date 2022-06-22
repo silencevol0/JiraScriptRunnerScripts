@@ -1,0 +1,83 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.ModifiedValue
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.util.DefaultIssueChangeHolder
+import com.atlassian.jira.user.UserUtils
+import com.atlassian.servicedesk.api.sla.info.SlaInformation
+import com.atlassian.servicedesk.api.sla.info.SlaInformationQuery
+import com.atlassian.servicedesk.api.sla.info.SlaInformationService
+import com.atlassian.servicedesk.api.util.paging.PagedResponse
+import com.atlassian.servicedesk.api.util.paging.SimplePagedRequest
+import com.onresolve.scriptrunner.runner.customisers.WithPlugin
+import java.sql.Timestamp
+import com.atlassian.servicedesk.api.sla.info.SlaInformationOngoingCycle
+//import tech.inno.servicedesk.fragmnets.secondsToDateString
+import java.time.Instant
+import java.time.format.DateTimeFormatter
+import java.time.ZoneId
+import com.atlassian.jira.issue.Issue
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+
+@WithPlugin("com.atlassian.servicedesk")
+Logger logger = Logger.getLogger(" SLA on portal")
+logger.setLevel(Level.DEBUG)
+Issue issue = context.getAt("issue") as Issue
+logger.debug "Issue is - ${issue} issueClass is - ${issue.class}"
+SlaInformationService slaInformationService = ComponentAccessor.getOSGiComponentInstanceOfType(SlaInformationService)
+SlaInformationQuery query = slaInformationService.newInfoQueryBuilder().issue(issue.getId()).pagedRequest(SimplePagedRequest.paged(0, 5)).build()
+PagedResponse<SlaInformation> pagedResponse = slaInformationService.getInfo(UserUtils.getUser("JIRA"), query)
+logger.debug "All sla at issue is >>>> ${pagedResponse}"
+DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault())
+String resultString = "борода"
+Timestamp currentTime = new Timestamp(System.currentTimeMillis())
+long currentTimeToLong = currentTime.getTime()
+
+
+def neededSlaName = ["До создания заявления", "До увольнения сотрудника", "Повторная отправка PDF"]
+
+for (SlaInformation sla : pagedResponse) {
+    Timestamp date
+    Optional<SlaInformationOngoingCycle> ongoingCycle = sla.getOngoingCycle()
+    String slaName = sla.getName()
+    long remTime
+    Instant breachTime
+    if (sla.getName() in neededSlaName && ongoingCycle.isPresent()) {
+        breachTime = ongoingCycle.get().getBreachTime().get()
+        remTime = ongoingCycle.get().getRemainingTime() / 1000 as Long
+        if (ongoingCycle.get().getBreachTime().isPresent()) {
+        	date = Timestamp.from(ongoingCycle.get().getBreachTime().get())
+        }
+    }
+    if (date) {
+    	long dateToLong = date.getTime()
+        long difference = (dateToLong - currentTimeToLong)
+        if (difference > 0) {
+            Long result = difference/1000 as Long
+            String formattedDuration = secToStr(result)
+            resultString = "SLA - '${slaName}' закончится в: ${DATE_TIME_FORMATTER.format(breachTime)}"
+            logger.debug "result to portal is >>> ${resultString}"
+        }
+    }
+    
+}
+
+if (resultString) {
+    return writer.write("""<br><div>${resultString}</div>""") //${slas.join("<br> ")} //context.issue.status.name
+}
+
+String secToStr(long sec) {
+    Long allMinutes = sec / 60 as Long
+    Long minutes = allMinutes % 60
+    Long allHours = (allMinutes - minutes) / 60  as Long
+    Long hours = allHours % 24
+    Long allDays = (allHours - hours) / 24 as Long
+    Long days = allDays % 7
+    Long weeks = (allDays - days) / 7 as Long
+    String result = ""
+    if (weeks > 0) result += " недель ${weeks},"      
+    if (days > 0) result += " дней ${days},"
+    if (hours > 0) result += " часов ${hours}h,"      
+    if (minutes > 0) result += " минут ${minutes}."
+    return result
+}

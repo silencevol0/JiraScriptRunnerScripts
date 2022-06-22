@@ -1,0 +1,23 @@
+String checkCommentForJSON(String comment){
+        if(comment){
+            byte[] rez = comment.getBytes().collect{
+                if(it == 9)	32
+                else if (it == 92) 45
+                else it
+            }
+            String checkedComment = new String(rez)
+            checkedComment = checkedComment.replaceAll('"',"'")
+            String[] lines = checkedComment.split("\n")
+            comment =" "
+            if (lines.size()>1){
+                for (String part : lines){
+                    if(part.getBytes()==[13]) continue
+                    part.replace("\\n","").replaceAll("	"," ")
+                    if(part.size()>0)
+                    comment += part.substring(0,part.size()-1) +"\\n"
+                }
+            }
+            else comment = checkedComment
+        }
+        return comment
+    }

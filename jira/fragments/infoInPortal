@@ -1,0 +1,101 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.ModifiedValue
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.util.DefaultIssueChangeHolder
+import com.atlassian.jira.user.UserUtils
+import com.atlassian.servicedesk.api.util.paging.SimplePagedRequest
+import com.onresolve.scriptrunner.runner.customisers.WithPlugin
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.AttachmentManager
+
+AttachmentManager aM = ComponentAccessor.getAttachmentManager()
+Logger logger = Logger.getLogger("testWebPanel")
+logger.setLevel(Level.DEBUG)
+logger.debug "Context: ${context}"
+String text = ""
+String statusCategory = ""
+String resolution = ""
+String color = ""
+String assigneeText = ""
+
+Issue issue = context.getAt("issue") as Issue
+Collection<Issue> allLinkIssues = ComponentAccessor.getIssueLinkManager().getLinkCollectionOverrideSecurity(issue).getAllIssues()
+if (issue.getIssueType().getName() == "Task" && allLinkIssues.find {it.getIssueType().getName() == "Story"}) {
+    Issue linkedIssue = allLinkIssues.find {it.getIssueType().getName() == "Story"}
+    String reminder = ""
+    if (issue.getStatus().getName() != "Ожидает удержания") {
+    	text = """В этой заявке согласующая служба выставляет задолженность, которая может быть обнаружена в процессе твоего увольнения. <br><br>
+    	Здесь ты можешь:
+    	<ul>
+ 			<li>Узнать статус согласования обходного листа ответственной службой</li>
+        	<li>SLA</li>
+ 			<li>Узнать тип и сумму задолженности (если она есть и уже выставлена)</li>
+		</ul><br>	
+        Ознакомиться с родительской заявкой Вы можете пройдя по ссылке - """
+    }
+    else {
+        if (aM.getAttachments(issue).size() in [0,1]) reminder = """<h5><font color="#FF0000">(Возможность перехода будет доступна после того, как вы подписанный документ будет прекреплен к запросу. Не забудьте обновить страницу запроса)</font></h5>"""
+        text = """В этой заявке согласующая служба выставляет задолженность, которая может быть обнаружена в процессе твоего увольнения. <br><br>
+    	Здесь ты можешь:
+    	<ul>
+ 			<li>Узнать статус согласования обходного листа ответственной службой</li>
+        	<li>SLA</li>
+ 			<li>Узнать тип и сумму задолженности (если она есть и уже выставлена)</li>
+            <li>Вернуть заявку на уточнение исполнителю, если обнаружил ошибку (напр. в размере выставленной задолженности)</li>
+            <li>Отказаться от погашения задолженности (В случае отказа от погашения задолженности компания оставляет за собой право обратиться в суд для взыскания задолженности в судебном порядке после твоего увольнения)</li>
+            <li>Погасить задолженность, прикрепив к заявке копии всех документов, подтверждающие факт погашения + скан/фото заполненного и подписанного заявления на добровольное удержание. ${reminder}</li>
+		</ul><br>	
+        Ознакомиться с родительской заявкой Вы можете пройдя по ссылке -"""
+    }
+}
+if (issue.getIssueType().getName() == "Story" && allLinkIssues.findAll {it.getIssueType().getName() == "Task"}) {
+    Collection<Issue> allChildIssues = allLinkIssues.findAll {it.getIssueType().getName() == "Task"}
+    int i = 1
+    text = """Твой Электронный Обходной Лист должен пройти согласование у нескольких служб. Каждая из них работает в рамках отдельной заявки. Ниже ты можешь получить информацию о:<br>
+    <ul>
+ 		<li>Статусе согласования</li>
+        <li>SLA</li>
+ 		<li>Исполнителе</li>
+        <li>Номере заявки</li>
+        <li>Наличии / отсутствии задолженности (если заявка уже обработана)</li>
+	</ul><br>
+	Для перехода в любую дочернюю заявку кликни на её номер.<br><hr>"""
+    for (Issue childIssue : allChildIssues) {
+        if (childIssue.getStatus().getStatusCategory().getName() == "Complete") {
+            statusCategory = "success"
+            switch (childIssue.getResolution().getName()) {
+                case ("Задолженность"):
+                	color = "error"
+                	break
+                case ("Задолженность отсутствует"):
+                	color = "success"
+                	break
+                case ("Отмена увольнения"):
+                	color = "moved"
+                	break
+                case ("Заявка не обработана"):
+                	color = "new"
+                	break
+            }
+            resolution = """Решение - <span class="aui-lozenge aui-lozenge-${color}">${childIssue.getResolution().getName()}</span>"""
+        }
+        if (childIssue.getAssignee().getUsername() == childIssue.getReporter().getUsername() && childIssue.getStatus().getStatusCategory().getName() != "Complete") {
+            assigneeText = """<p><span style="color: #ff0000;"><strong>(Обратите внимание на эту задачу!)</strong></span></p>"""
+        }
+        if (childIssue.getStatus().getStatusCategory().getName() == "In Progress") statusCategory = "inprogress"
+        text = text + """${i}. ${childIssue.getSummary()} - </a>,  
+        Статус - <span class="aui-lozenge aui-lozenge-${statusCategory}">${childIssue.getStatus().getName()}</span><br>
+        Исполнитель - ${childIssue.getAssignee().displayName}. ${assigneeText}<br>
+        ${resolution} <hr>
+        """
+        i++
+        resolution = ""
+        assigneeText = ""
+    }
+}
+
+
+
+return writer.write("""<br><div id="info-box">${text}</div>""") 
