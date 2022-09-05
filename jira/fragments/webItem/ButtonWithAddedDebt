@@ -1,0 +1,357 @@
+import com.atlassian.jira.component.ComponentAccessor 
+import com.atlassian.jira.issue.MutableIssue 
+import com.atlassian.jira.user.ApplicationUser 
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate 
+import groovy.transform.BaseScript 
+import org.apache.log4j.Level 
+import org.apache.log4j.Logger 
+import javax.ws.rs.core.MediaType 
+import javax.ws.rs.core.MultivaluedMap 
+import javax.ws.rs.core.Response 
+
+@BaseScript CustomEndpointDelegate delegate 
+toKeepTheDeptEndPoint(httpMethod: "GET", groups: ["jira-administrators"]) { 
+    MultivaluedMap queryParams -> new Class_ToKeepTheDept().run(queryParams) 
+} 
+
+class Class_ToKeepTheDept { 
+    String typeOfDebtHtml 
+    MutableIssue issue 
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName('USERNAME') 
+    Logger logger = Logger.getLogger('KeepOfDebt') 
+    
+    def run(MultivaluedMap queryParams) { 
+        logger.setLevel(Level.DEBUG) 
+        Long issueId = queryParams.getFirst("issueid") as Long 
+        issue = ComponentAccessor.getIssueManager().getIssueObject(issueId) 
+        logger.debug("queryParams: ${queryParams} and issue is >>> ${issue}") 
+        String form 
+        
+        try {
+            form = buildForm()
+        }
+        catch (Exception e) { 
+            logger.error("[${issue.key}] Exception: ${e}") 
+            return response(buildErrorForm("что то пошло не по плану")) 
+        } 
+        return response(form) 
+    }
+    
+    Response response(String entity) { 
+    	return Response.ok() 
+        	.type(MediaType.TEXT_HTML) 
+            .entity(entity) 
+            .build() 
+    } 
+    
+    String buildErrorForm(String errorMsg) { 
+        return 
+        """"""
+    } 
+    
+    String buildForm() { 
+        return """
+        <section role="dialog" id="keep-of-debt-dialog" class="aui-layer aui-dialog2 aui-dialog2-xlarge" data-aui-remove-on-hide="true" aria-hidden="true" onclick='validationForEmptyField()'>
+            <header class="aui-dialog2-header">
+                <h2 class="aui-dialog2-header-main">Удержать</h2>
+                <button class="aui-close-button" type="button" aria-label="close"></button>
+            </header>
+            <div class="aui-dialog2-content">
+                <div id="container" style="width:px">
+                    <form id="form" class="aui" name="form">
+                        <fieldset id="template" style="display: none">
+                            <form class="aui">
+                                <div class="field-group">
+                                    <label for="type-of-debt">Тип задолженности<span class="aui-icon icon-required"></label>
+                                    <select class="select" id="type-of-debt" onchange="validateTypeOfDebt(this)"> 
+                                        <option value="0">Выберите тип задолженности</option>
+                                        <option value="1">Неотработанный и невозвращенный аванс, выданный в связи с командировкой или переводом</option>
+                                        <option value="2">Возмещение неотработанного аванса, выданного в счет заработной платы</option>
+                                        <option value="3">Неотработанные дни отпуска, предоставленные «авансом»</option>
+                                        <option value="4">Излишне перечисленная заработная плата за первую половину месяца (аванс)</option>
+                                        <option value="5">Утерянное или повреждённое IT-оборудование</option>
+                                        <option value="6">Превышение лимита сотовой связи</option> <option value="7">Неотработанные ученические договора</option>
+                                        <option value="8">Использование служебных поездок на такси в личных, непроизводственных целях</option>
+                                        <option value="9">Досрочно предоставленная в Кафетерии льгот сумма, которую компания уже компенсировала</option>
+                                    </select>
+                                    <div class="field-group" hidden> <label for="text-input">Сумма задолженности<span class="aui-icon icon-required">required</span></label>
+                                        <input class="text" type="text" id="amountDebt" name="text-input" title="Text input" >
+                                    </div>
+                                    <div class="field-group" hidden> <label for="text-input">Количество<span class="aui-icon icon-required">required</span></label>
+                                        <input class="text" type="text" id="counter" name="text-input" title="Text input" placeholder="Пример: 35 200.55">
+                                    </div>
+                                    <div class="field-group" hidden> <label for="text-input">Наименование ТМЦ/услуги/актива<span class="aui-icon icon-required">required</span></label>
+                                        <input class="text" type="text" id="nameDebt" name="text-input" title="Text input">
+                                    </div>
+                                    <div class="field-group" hidden> <label for="text-input">Номер договора<span class="aui-icon icon-required">required</span></label>
+                                        <input class="text" type="text" id="nameContract" name="text-input" title="Text input">
+                                    </div>
+                                    <div class="field-group" hidden> <label for="text-input">Дата договора<span class="aui-icon icon-required">required</span></label>
+                                        <input class="aui-date-picker" type="date" id="dateContract" name="text-input" title="Text input">
+                                    </div>
+                                </div>
+                            </form>
+                            <br/>
+                            <button class="aui-button" id="delete">Удалить задолженность</button>
+                            <br/>
+                            <hr/>
+                        </fieldset>
+                        <button id="form_submit" class="aui-button aui-button-primary" type="Утвердить" style="display: none"></button>
+                    </form> 
+                </div>
+            </div>
+            <div style="width:100%;height:80px">
+            	<h4 style="text-align: center;">
+            		<span style="color: #ff6600;">
+                    	<strong>
+                        	Все поля являются обязательными для заполнения, если Вам необходимо добавить задолженность нажмите соответствующую кнопку, что бы отправить
+                        	задолженность у вас не должно быть незаполненных полей, а так же задолженностей у которых не выбран их тип.
+                        	<br>
+                        	Заполняйте поля необходимыми значениями, они будут заполняться в заявлении в том формате, в котором вы укажите.
+                        </strong>
+                    </span>
+                </h4>
+			</div>
+            <footer class="aui-dialog2-footer"> <button id="add-debt-panel" class="aui-button aui-button-primary">Добавить задолженность</button> 
+                <div class="aui-dialog2-footer-actions">
+                    <button id="submit" class="aui-button aui-button-primary">Утвердить</button>
+                </div> 
+            </footer>
+    	</section>
+        
+        <script> 
+        
+        function validationForEmptyField() {
+  			var submitButton = document.querySelector("#submit") 
+  			var fieldArray = document.querySelectorAll("#form .field_set .field-group .field-group input") 
+  			var typeOfDebtArray = document.querySelectorAll("#form .field_set .field-group .select") 
+  			let isValid = true 
+  			for (var item of fieldArray) {
+    			if(item.offsetParent !== null) {
+      				if(item.value == "") {
+        				isValid = false 
+        				break 
+      				} 
+    			} 
+          	} 
+          	if (typeOfDebtArray.length == 0) {
+            	isValid = false 
+          	} 
+          	for (var item of typeOfDebtArray) {
+            	var value = item.value 
+            	if (value == 0) { 
+              		isValid = false 
+              		break 
+            	} 
+          	} 
+          	if (isValid) {
+            	submitButton.removeAttribute('disabled') 
+          	} 
+          	else {
+            	submitButton.setAttribute('disabled','disabled') 
+          	} 
+        }
+
+        
+        var validateTypeOfDebt = function(element){ 
+        	let valueSelect = document.querySelector("#"+element.id).value 
+            let formID = element.id.replace(/[^\\d]/g, '') 
+            let fieldCounter = document.querySelector("#counter-"+formID) 
+            let fieldAmountDebt = document.querySelector("#amountDebt-"+formID) 
+            let fieldNameDebt = document.querySelector("#nameDebt-"+formID) 
+            let fieldNameContract = document.querySelector("#nameContract-"+formID) 
+            let fieldDateContract = document.querySelector("#dateContract-"+formID) 
+            
+            //hide all connected fields 
+            
+            fieldCounter.parentElement.hidden = true
+            fieldAmountDebt.parentElement.hidden = true 
+            fieldNameDebt.parentElement.hidden = true 
+            fieldNameContract.parentElement.hidden = true 
+            fieldDateContract.parentElement.hidden = true 
+            
+            //show fields that we need 
+            
+            switch(valueSelect) { 
+            	case '1': 
+                	fieldCounter.parentElement.hidden = false
+                    fieldAmountDebt.parentElement.hidden = false
+                    break 
+                case '2': 
+                	fieldCounter.parentElement.hidden = false 
+                    fieldAmountDebt.parentElement.hidden = false 
+                    break 
+                case '3': 
+                    fieldCounter.parentElement.hidden = false 
+                    fieldAmountDebt.parentElement.hidden = false 
+                    break
+            	case '4': 
+                    fieldCounter.parentElement.hidden = false 
+                    fieldAmountDebt.parentElement.hidden = false 
+                    break 
+            	case '5': 
+                    fieldCounter.parentElement.hidden = false 
+                    fieldAmountDebt.parentElement.hidden = false 
+                    fieldNameDebt.parentElement.hidden = false 
+                    fieldNameContract.parentElement.hidden = false 
+                    fieldDateContract.parentElement.hidden = false 
+                    break 
+            	case '6': 
+                    fieldCounter.parentElement.hidden = false 
+                    fieldAmountDebt.parentElement.hidden = false 
+                    fieldNameContract.parentElement.hidden = false 
+                    fieldDateContract.parentElement.hidden = false 
+                    break 
+            	case '7': 
+                    fieldCounter.parentElement.hidden = false 
+                    fieldAmountDebt.parentElement.hidden = false 
+                    fieldNameDebt.parentElement.hidden = false 
+                    fieldNameContract.parentElement.hidden = false 
+                    fieldDateContract.parentElement.hidden = false 
+                    break 
+            	case '8': 
+                    fieldCounter.parentElement.hidden = false 
+                    fieldAmountDebt.parentElement.hidden = false 
+                    break 
+            	case '9': 
+                    fieldCounter.parentElement.hidden = false 
+                    fieldAmountDebt.parentElement.hidden = false 
+                    break 
+            	default: 
+                    fieldCounter.parentElement.hidden = true 
+                    fieldAmountDebt.parentElement.hidden = true 
+                    fieldNameDebt.parentElement.hidden = true 
+                    fieldNameContract.parentElement.hidden = true 
+                    fieldDateContract.parentElement.hidden = true 
+                    break 
+            	} 
+            } 
+            
+            AJS.toInit(() => { 
+                const issueKey = "${issue.key}"; 
+                var issueCounter = 0; 
+                addIssueBlock(); 
+
+				var submitButton = document.querySelector("#submit")
+            	submitButton.setAttribute('disabled','disabled')
+
+                AJS.\$("#add-debt-panel").click(e => { 
+                    addIssueBlock(); 
+                }); 
+
+                AJS.\$(document).ready(function() {
+                    AJS.\$('#dateContract').datePicker({'overrideBrowserDefault': true}); 
+                }); 
+
+                AJS.\$("#submit").click(e => {
+                    submit();
+                    AJS.dialog2("#keep-of-debt-dialog").remove();
+                });
+
+                function disableSubmit() {
+                    AJS.\$('#submit').prop('disabled', true);
+                }
+
+                function enableSubmit() {
+                    AJS.\$('#submit').prop('disabled', false);
+                }
+
+                function validateNumberInput(element){
+                    let value = AJS.\$(element).val();
+                    let parentElement = element.parentElement;
+                    let errorNumber = AJS.\$(AJS.\$(parentElement).find('.error_number')[0]);
+                    if (value === undefined || value === '') {
+                        return true;
+                    }
+                    if (isNaN(value) || value % 1 !== 0) {
+                        errorNumber.show();
+                        return false;
+                    } else {
+                        errorNumber.hide();
+                    }
+                    return true
+                }
+
+                function addIssueBlock() {
+                    let template = AJS.\$("#template").clone(); 
+                    let jqueryTemplate = AJS.\$(template); 
+                    issueCounter++; 
+
+                    let fieldSetId = 'field-set-' + issueCounter; 
+                    jqueryTemplate.attr('id', fieldSetId); 
+                    jqueryTemplate.attr('class', 'field_set'); 
+
+                    let debtTypeId = changeElementId('type-of-debt', jqueryTemplate); 
+                    let counterId = changeElementId('counter', jqueryTemplate) 
+                    let amountDebtId = changeElementId('amountDebt', jqueryTemplate) 
+                    let nameDebtId = changeElementId('nameDebt', jqueryTemplate) 
+                    let nameContractId = changeElementId('nameContract', jqueryTemplate) 
+                    let dateContractId = changeElementId('dateContract', jqueryTemplate) 
+                    let deleteIssueId = changeElementId('delete', jqueryTemplate);
+
+
+
+                    AJS.\$("#form").append(jqueryTemplate); 
+                    AJS.\$("#" + debtTypeId + ' select').auiSelect2(); 
+                    AJS.\$('#' + deleteIssueId).click((e) => {
+                        AJS.\$('#' + fieldSetId).remove(); 
+                    }); 
+
+                    document.getElementById(dateContractId).type='date'
+                    AJS.\$('#dateContract').datePicker({'overrideBrowserDefault': true}); 
+
+                    jqueryTemplate.show(); 
+                } 
+
+                function changeElementId(id, parentElement) {
+                    const newId = id + '-' + issueCounter;
+                    parentElement.find('#' + id).attr("id", newId);
+                    return newId
+                }
+                
+                function submit(){
+                    let fieldSets = AJS.\$('.field_set');
+                    var fieldSetDto = [];
+                    AJS.\$.each(fieldSets, (i, fieldSet) => {
+                        let idCounter = fieldSet.id.replace(/[^\\d]/g, '')
+                        let typeOfDebt = AJS.\$(fieldSet).find('#type-of-debt-' + idCounter).val();
+                        let counter = AJS.\$(fieldSet).find('#counter-' + idCounter).val();
+                        let amountDebt = AJS.\$(fieldSet).find('#amountDebt-' + idCounter).val();
+                        let nameDebt = AJS.\$(fieldSet).find('#nameDebt-' + idCounter).val();
+                        let nameContract = AJS.\$(fieldSet).find('#nameContract-' + idCounter).val();
+                        let dateContract = AJS.\$(fieldSet).find('#dateContract-' + idCounter).val();
+                        fieldSetDto.push({
+                            typeOfDebt: typeOfDebt,
+                            counter: counter,
+                            amountDebt: amountDebt,
+                            nameDebt: nameDebt,
+                            nameContract: nameContract,
+                            dateContract: dateContract
+                        });
+                    });
+                    new Promise((resolve, reject) => {
+                        AJS.\$.ajax({
+                            url: AJS.params.baseURL + "/rest/scriptrunner/latest/custom/URL",
+                            type: 'POST',
+                            dataType: 'json',
+                            contentType: "application/json",
+                            data: JSON.stringify({
+                                issueKey: issueKey,
+                                fields: fieldSetDto
+                            }),
+                            success: response => {
+                                resolve();
+                                location.reload();
+                            },
+                            error: (xhr, status, error) => {
+                                reject();
+                            }
+                        });
+                    });
+                    return true
+                }
+            });
+        </script>
+        """ 
+    } 
+}

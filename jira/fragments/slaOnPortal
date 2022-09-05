@@ -20,7 +20,7 @@ import org.apache.log4j.Level
 import org.apache.log4j.Logger
 
 @WithPlugin("com.atlassian.servicedesk")
-Logger logger = Logger.getLogger(" SLA on portal")
+Logger logger = Logger.getLogger("c SLA on portal")
 logger.setLevel(Level.DEBUG)
 Issue issue = context.getAt("issue") as Issue
 logger.debug "Issue is - ${issue} issueClass is - ${issue.class}"

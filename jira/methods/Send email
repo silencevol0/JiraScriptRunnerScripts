@@ -7,24 +7,23 @@ import com.atlassian.mail.queue.SingleMailQueueItem
 
 
 
-def subject = "Я смог отправить себе письмо" // Тема письма 
-def body = "1:0 в мою пользу" // Тело письма
-def currentUser = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser() // Залоганный юзер
-def emailAddr = currentUser.getEmailAddress() // Емейл залоганного юзера
+def subject = "Subject" // Тема письма 
+def body = "Body" // Тело письма
+def currentUser = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser() 
+def emailAddr = currentUser.getEmailAddress() 
 
 
- static boolean sendMail(String emailAddr, String subject, String body) { // метод для отправки емейла 
-        def mailServer = ComponentAccessor.mailServerManager.defaultSMTPMailServer // Вызываем майл сервер
-        def wasAddedToQueue = false
-        if (mailServer) {
-            def mail = new Email(emailAddr)
-            mail.setSubject(subject)
-            mail.setBody(body)
-            mail.setMimeType("text/html")
-            def item = new SingleMailQueueItem(mail)
-            ComponentAccessor.mailQueue.addItem(item)
-            wasAddedToQueue = true
-        }
-        return wasAddedToQueue
+boolean sendMail(String emailAddr, String subject, String body) { 
+	SMTPMailServer mailServer = ComponentAccessor.mailServerManager.defaultSMTPMailServer 
+    boolean wasAddedToQueue = false
+    if (mailServer) {
+    	Email mail = new Email(emailAddr)
+        mail.setSubject(subject)
+        mail.setBody(body)
+        mail.setMimeType("text/html")
+        SingleMailQueueItem item = new SingleMailQueueItem(mail)
+        ComponentAccessor.mailQueue.addItem(item)
+        wasAddedToQueue = true
     }
-sendMail(emailAddr,subject,body)
+    return wasAddedToQueue
+}

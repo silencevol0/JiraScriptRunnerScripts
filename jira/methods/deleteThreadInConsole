@@ -1,0 +1,18 @@
+Map<Thread, StackTraceElement[]> threadSet = Thread.getAllStackTraces()
+
+threadSet.each {it ->
+    Thread t = it.key
+
+    def threadName = t.name
+    def threadState = t.state
+    if (threadName.contains("http-nio-8080-exec-548 url: /rest/scriptrunner/latest/user/exec/; user: APolyakov_omru")) {log.error threadName}
+
+    
+    if (threadName == "http-nio-8080-exec-548 url: /rest/scriptrunner/latest/user/exec/; user: APolyakov_omru") {
+        log.error "${threadName} - ${threadState}"
+        
+    //t.stop() 
+    }
+}
+
+return ""

@@ -1,0 +1,172 @@
+import com.atlassian.jira.component.ComponentAccessor 
+import com.atlassian.jira.issue.MutableIssue 
+import com.atlassian.jira.user.ApplicationUser 
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate 
+import groovy.transform.BaseScript 
+import org.apache.log4j.Level 
+import org.apache.log4j.Logger 
+import javax.ws.rs.core.MediaType 
+import javax.ws.rs.core.MultivaluedMap 
+import javax.ws.rs.core.Response 
+import com.atlassian.jira.issue.fields.CustomField
+
+@BaseScript CustomEndpointDelegate delegate 
+CheckRepaidDebtGetPoint(httpMethod: "GET", groups: ["GROUP"]) { 
+    MultivaluedMap queryParams -> new Class_CheckRepaidDebtGetPoint().run(queryParams) 
+} 
+
+class Class_CheckRepaidDebtGetPoint { 
+    String typeOfDebtHtml 
+    MutableIssue issue 
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName('USERNAME')
+    CustomField infoTheDebtCF = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(17201)
+    Logger logger = Logger.getLogger('LOGGER')
+    String[] listInfoTheDebt
+    List<String> listValuesToCheckBox = new ArrayList()
+    
+    def run(MultivaluedMap queryParams) { 
+        logger.setLevel(Level.DEBUG) 
+        Long issueId = queryParams.getFirst("issueid") as Long 
+        issue = ComponentAccessor.getIssueManager().getIssueObject(issueId) 
+        logger.debug("queryParams: ${queryParams} and issue is >>> ${issue}") 
+        String form 
+        getOptionsFromTableString()
+        logger.debug listValuesToCheckBox
+        
+        try {
+            form = buildForm()
+        }
+        catch (Exception e) { 
+            logger.error("[${issue.key}] Exception: ${e}") 
+            return response(buildErrorForm("что то пошло не по плану")) 
+        } 
+        return response(form) 
+    }
+    
+    Response response(String entity) { 
+    	return Response.ok() 
+        	.type(MediaType.TEXT_HTML) 
+            .entity(entity) 
+            .build() 
+    }
+    
+    void getOptionsFromTableString() {
+        String infoTheDebt = issue.getCustomFieldValue(infoTheDebtCF)
+        listInfoTheDebt = infoTheDebt.split("\n")
+        for (String string : listInfoTheDebt) { 
+    		if (string == "||Тип задолженности||Сумма задолженности||Количество||Наименование ТМЦ/услуги/актива||Номер договора||Дата договора||Статус задолженности||") continue
+    		String replacedString = string.replaceFirst("\\|","")
+    		String[] replaceColumn = replacedString.split("\\|")
+    		String nameDebt = ""
+    		if (replaceColumn[3] != " ") nameDebt = ", Наименование ТМЦ/услуги/актива - ${replaceColumn[3]}"
+    		String finalValue = "Тип задолженности - ${replaceColumn[0]}, Сумма задолженности - ${replaceColumn[1]}${nameDebt}"
+            listValuesToCheckBox.add(finalValue)
+		}
+    }
+    
+    String generateCheckBox() {
+        String result = ""
+        for (int i = 0; i < listValuesToCheckBox.size(); i++) {
+            result += """<div class="checkbox">
+            <input class="checkbox" type="checkbox" name="checkBoxOne" id="checkBoxOne" value="${i+1}">
+            <label for="checkBoxOne">inner</label>
+        	</div>""".replaceAll("checkBoxOne",("checkbox-${i}") as String).replaceAll("inner",listValuesToCheckBox[i])      
+        }
+        return result
+    }
+    
+    String buildErrorForm(String errorMsg) { 
+        return 
+        """"""
+    } 
+    
+    String buildForm() { 
+        return """
+        	<section role="dialog" id="check-debt-dialog" class="aui-layer aui-dialog2 aui-dialog2-medium" data-aui-remove-on-hide="true" aria-hidden="true">
+            	<header class="aui-dialog2-header">
+                	<h2 class="aui-dialog2-header-main">Согласовать</h2>
+                	<button class="aui-close-button" type="button" aria-label="close"></button>
+                </header>
+                <div class="aui-dialog2-content">
+                	<div id="container" style="width:px">
+                        <form class="aui">
+    						<fieldset class="group", style="padding: 4px 0 4px 15px">         
+                            </fieldset>
+                        </form>
+            		</div>
+              	</div>
+                <div style="width:100%;height:85px">
+            	<h4 style="text-align: center;">
+            		<span style="color: #ff6600;">
+                    	<strong>
+                        	Выберите те задолженности, которые являются погашенными, отметив их здесь, Вы отметите их в дочерней и родительской заявке как оплаченые.
+                        </strong>
+                    </span>
+                </h4>
+			</div>
+            <footer class="aui-dialog2-footer"> 
+            	<div class="aui-dialog2-footer-actions">
+                	<button id="submit" class="aui-button aui-button-primary">Подтвердить</button>
+            	</div> 
+            </footer>
+    		</section>
+            
+            <script> 
+            	const parrent = document.querySelector("fieldset.group")
+                var times = ${listInfoTheDebt.size()};
+                for(var i = 1; i < times; i++) {
+                    createCheckBox(parrent, i);
+                }
+                
+                function createCheckBox(parrent, count) {
+                	let checboxIdorName = "checbox" + count
+                    let wrape = document.createElement("div")
+                    wrape.setAttribute('style','display:block')
+                    parrent.innerHTML = `${generateCheckBox()}`   
+                }
+                
+                AJS.toInit(() => {
+                
+                	AJS.\$("#submit").click(e => {
+                    	submit();
+                    	AJS.dialog2("#check-debt-dialog").remove();
+                	});
+                    
+                    function submit() {
+                        let count = 0
+                        let resultList = []
+                        document.querySelectorAll(".checkbox").forEach(elem => {
+                            if(elem.checked) {
+                                count++
+                                resultList.push(elem.value)
+                                console.log(elem.value)
+                            }
+                        })
+                        new Promise((resolve, reject) => {
+                            AJS.\$.ajax({
+                                url: AJS.params.baseURL + "/rest/scriptrunner/latest/custom/checkRepaidDebtPostPoint",
+                                type: 'POST',
+                                dataType: 'json',
+                                contentType: "application/json",
+                                data: JSON.stringify({
+                                    issueKey: '${issue.key}',
+                                    result: resultList,
+                                    count: count,
+                                    allStrings: '${listInfoTheDebt.size() - 1}'
+                                }),
+                                success: response => {
+                                    resolve();
+                                    location.reload();
+                                },
+                                error: (xhr, status, error) => {
+                                    reject();
+                                }
+                            });
+                        });
+                        return true
+                    }
+                });
+        	</script>
+    		"""
+    } 
+}

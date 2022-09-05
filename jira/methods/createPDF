@@ -1,0 +1,315 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.fields.CustomField
+import java.text.SimpleDateFormat
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import com.lowagie.text.*
+import com.lowagie.text.PageSize
+import com.lowagie.text.Document
+import com.lowagie.text.DocumentException
+import com.lowagie.text.Font
+import com.lowagie.text.Phrase
+import com.lowagie.text.pdf.PdfPCell
+import com.lowagie.text.pdf.PdfPTable
+import com.lowagie.text.pdf.PdfWriter
+import com.atlassian.jira.issue.attachment.CreateAttachmentParamsBean
+import org.apache.commons.io.FilenameUtils
+import com.atlassian.jira.config.util.AttachmentPathManager
+import com.atlassian.jira.issue.AttachmentManager
+import com.atlassian.jira.user.ApplicationUser
+import groovy.json.JsonSlurper
+import com.valiantys.jira.plugins.sql.*
+import groovy.sql.Sql
+import java.sql.Driver
+import groovy.sql.GroovyRowResult
+import com.atlassian.servicedesk.api.requesttype.RequestTypeService
+import com.atlassian.servicedesk.api.user.UserFactory
+import com.onresolve.scriptrunner.runner.customisers.WithPlugin
+
+import com.lowagie.text.pdf.BaseFont
+
+
+MutableIssue issue = ComponentAccessor.getIssueManager().getIssueObject("issuekey") //debug
+CreateFormFile script = new CreateFormFile()
+script.run(issue)
+
+class CreateFormFile {
+    IssueManager issueManager = ComponentAccessor.getIssueManager()
+    CustomFieldManager customFieldManager = ComponentAccessor.getCustomFieldManager()
+    AttachmentPathManager attachmentPathManager = ComponentAccessor.getAttachmentPathManager()
+    AttachmentManager attachmentManager = ComponentAccessor.getAttachmentManager()
+    ApplicationUser currentUser = ComponentAccessor.getJiraAuthenticationContext()?.getLoggedInUser()
+    Logger log = Logger.getLogger("Attachment creator")
+    
+    String tempFilesStore = '/tmp/' 
+    String date = new Date().toString()
+
+    def run(MutableIssue issue) {
+        log.setLevel(Level.DEBUG)
+        //log.debug("${issue.key} Script started")
+        long ScriptStartTime = System.currentTimeMillis()
+        	String logoPath = 'path/Logo.jpg'
+    	//log.debug(logoPath)
+                
+        String employeeID = "employeeId"
+        //log.debug(employeeID)
+        
+        String employee = "employee"
+        //log.debug(employee)
+        String requestType = "requestType"
+        //log.debug(requestType)
+        
+        String numberOfNotification = "numberOfNotification"
+        //log.debug(numberOfNotification)
+        
+        String unformattedDateOf = new Date().toString()
+        String dateOf = unformattedDateOf
+        //log.debug(dateOf)
+        
+        
+        String jobTitle= 'Title'
+        
+    
+        
+        String tempFilePath = generateTempFile()
+        //log.debug(tempFilePath)
+        ApplicationUser sysUser = ComponentAccessor.getUserManager().getUserByName("JIRA")
+        ComponentAccessor.commentManager.create(issue,sysUser,"Просьба распечатать и подписать заявление",true)
+        createAttachment(issue, tempFilePath)
+
+        long ScriptWorkTime = System.currentTimeMillis() - ScriptStartTime
+        //log.debug("${issue.key} Script work time: ${ScriptWorkTime} ms.")
+    }
+    
+    String generateTempFile() {    
+    // Page parameters, 1 point = 1/72 inch ~ 1/2.8 mm
+    	int marginLeftCm = 20
+        int marginRightCm = 5
+        int marginTopCm = 10
+        int marginBottomCm = 5
+    
+    	def fontStore = 'path'
+        BaseFont baseFont = BaseFont.createFont("path/CALIBRI.TTF", BaseFont.IDENTITY_H, BaseFont.EMBEDDED)
+        BaseFont boldBaseFont =null// BaseFont.createFont(fontStore + "calibrib.ttf", BaseFont.IDENTITY_H, BaseFont.EMBEDDED)
+        BaseFont italicBaseFont = null//BaseFont.createFont(fontStore + "calibrili.ttf", BaseFont.IDENTITY_H, BaseFont.EMBEDDED)
+        BaseFont italicVERTICALBaseFont = null//BaseFont.createFont(fontStore + "calibrili.ttf", BaseFont.IDENTITY_V, BaseFont.EMBEDDED)
+        BaseFont boldItalicBaseFont = null//BaseFont.createFont(fontStore + "calibriz.ttf", BaseFont.IDENTITY_H, BaseFont.EMBEDDED)     
+        
+        Font font = new Font(baseFont,10.0f)
+        Font boldFont = new Font(boldBaseFont,10.0f)
+        Font italicFont = new Font(italicBaseFont,10.0f)
+        Font italicVertFont = new Font(italicVERTICALBaseFont,10.0f)
+        Font boldItalicFont = new Font(boldItalicBaseFont,10.0f)
+    	Font boldBigFont = new Font(boldBaseFont,13.0f)
+        Font smallFont = new Font(baseFont,7.0f)
+        
+        def document = new Document(PageSize.A4, (marginLeftCm*2.8).toInteger(), (marginRightCm*2.8).toInteger(), (marginTopCm*2.8).toInteger(), (marginBottomCm*2.8).toInteger())
+        
+        Chapter chapter = new Chapter(new Paragraph(),1)
+        chapter.setNumberDepth(0)
+        
+        PdfPTable table 
+
+        table = new PdfPTable(2)
+        table.setWidthPercentage(95)
+        table.setWidths(50,50)
+        table.setSpacingBefore(5)
+        table.setSpacingAfter(5)
+    
+        PdfPCell cell
+        
+        cell = newCell(table, "", font, Element.ALIGN_LEFT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        cell = newCell(table, "",font,Element.ALIGN_LEFT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        
+        cell = newCell(table, "", font, Element.ALIGN_LEFT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        cell = newCell(table, "Генеральному директору",font,Element.ALIGN_RIGHT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        
+        cell = newCell(table, "", font, Element.ALIGN_LEFT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        cell = newCell(table, "OOO  «{GK INNOTEX}»",font,Element.ALIGN_RIGHT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        
+        cell = newCell(table, "", font, Element.ALIGN_LEFT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        cell = newCell(table, "ot ",font,Element.ALIGN_LEFT,Element.ALIGN_BASELINE,0,Rectangle.BOTTOM,1,1)
+        
+        cell = newCell(table, "", font, Element.ALIGN_LEFT,Element.ALIGN_TOP,0,Rectangle.NO_BORDER,1,1)
+        cell = newCell(table, "FIO sotrudnika",font,Element.ALIGN_CENTER,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        
+        cell = newCell(table, "", font, Element.ALIGN_LEFT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        cell = newCell(table, "passport ",font,Element.ALIGN_LEFT,Element.ALIGN_BASELINE,0,Rectangle.BOTTOM,1,1)
+        
+
+        chapter.add(table)
+         
+        chapter.add(Chunk.NEWLINE)
+        chapter.add(Chunk.NEWLINE)
+        chapter.add(Chunk.NEWLINE)
+        
+        table = new PdfPTable(2)
+        table.setWidthPercentage(95)
+        table.setWidths(70,30)
+        table.setSpacingBefore(5)
+        table.setSpacingAfter(5)
+        
+        cell = newCell(table, "", font, Element.ALIGN_RIGHT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        cell = newCell(table, "Подпись____________________", font, Element.ALIGN_RIGHT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        
+        cell = newCell(table, "", font, Element.ALIGN_RIGHT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,2,1) //empty whole row
+        
+        cell = newCell(table, "", font, Element.ALIGN_RIGHT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        //cell = newCell(table, "«____»________________" + year + "г.", font, Element.ALIGN_RIGHT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+
+        chapter.add(table)
+        
+        chapter.add(Chunk.NEWLINE)
+        chapter.add(Chunk.NEWLINE)
+        chapter.add(Chunk.NEWLINE)
+        chapter.add(Chunk.NEWLINE)
+        chapter.add(Chunk.NEWLINE)
+        chapter.add(Chunk.NEWLINE)
+        
+        table = new PdfPTable(1)
+        table.setWidthPercentage(95)
+        table.setWidths(95)
+        table.setSpacingBefore(5)
+        table.setSpacingAfter(5)
+        
+        cell = newCell(table, "1/1", smallFont, Element.ALIGN_RIGHT,Element.ALIGN_BASELINE,0,Rectangle.NO_BORDER,1,1)
+        
+        chapter.add(table)      
+
+        String filePath = tempFilesStore + "Заявление на удержание.pdf"
+        PdfWriter.getInstance(document, new FileOutputStream(filePath))
+        document.open()
+        //log.error document.add(chapter)
+        
+        document.add(chapter)
+        document.close()
+
+        return filePath
+    }
+        
+    PdfPCell newCell(PdfPTable table, String text, Font font, int horizontal, int vertical, int rotate, int borders, int colspan, int rowspan){
+    //draws cell which consist of $colspan colums and $rowspan rows 
+        PdfPCell cell = new PdfPCell()
+        Paragraph par = new Paragraph(text, font)
+        cell.setUseAscender(true)
+        par.setAlignment(horizontal)
+        cell.addElement(par)
+        cell.setBorder(borders)
+        cell.setColspan(colspan)
+        cell.setRowspan(rowspan)
+        cell.setMinimumHeight(15)
+        cell.setNoWrap(false)
+        cell.setVerticalAlignment(vertical)
+        cell.setRotation(rotate)
+        table.addCell(cell)
+        return cell
+    }
+    
+    PdfPCell imageCell(PdfPTable table, String imgPath, int borders) {
+        Image img = Image.getInstance(imgPath)
+        PdfPCell cell = new PdfPCell(img, true)
+        cell.setBorder(borders)
+        table.addCell(cell)
+        return cell
+    }
+    
+    Paragraph newCenteredParagraph(String text, Font font){
+        Paragraph par=new Paragraph(text, font)
+        par.setAlignment(par.ALIGN_CENTER)
+        par.setLeading(5,0)
+        return par
+    }
+    
+    boolean createAttachment (MutableIssue issue, String tempFilePath){
+        boolean isCreated = false
+        File file = new File(tempFilePath)
+        if (file.exists()){
+            //log.debug("Temp file ${tempFilePath} found")
+            String fileName = file?.name
+
+            String extension = FilenameUtils.getExtension(fileName)
+            
+            if (extension == ""){extension = "txt"}
+            if (extension == "pdf"){extension = "application/pdf"}
+            //log.debug(extension)
+            CreateAttachmentParamsBean bean = new CreateAttachmentParamsBean.Builder()
+                .file(file)
+                .filename(fileName)
+                .contentType(extension)
+                .author(currentUser)
+                .issue(issue)
+                .build()
+            attachmentManager.createAttachment(bean)
+            isCreated = true
+        }
+        else{
+            //log.debug("Temp file ${tempFilePath} not found")
+        }
+        return isCreated
+    }
+    
+    public java.util.List<GroovyRowResult> getRowsFromSQLDb(String selectCondition, String fromTable, String whereCondition) {
+        String query = """
+        SELECT ${selectCondition}
+    FROM ${fromTable}
+    WHERE ${whereCondition};
+        """
+        switch(fromTable) {
+            case '[1C Integration Database].[dbo].[EmployeePassport]':
+    	return Execute1СRequest(query);
+            case '[DW_Finance].[dbo].[NAV_EmployeeOfPS_Corp]':
+    	return ExecuteDWHRequest(query);
+            default:
+                def message = 'Wrong database name!'
+                //log.debug(message)
+                throw new Exception(message)
+        }
+    }
+        
+    public java.util.List<GroovyRowResult> ExecuteDWHRequest(String query) {
+        def driver = Class.forName('name').newInstance() as Driver
+        def props = new Properties()
+        props.setProperty("user", "user")
+        props.setProperty("password", "password")
+        props.setProperty("autocommit", "false")
+
+        def conn = driver.connect("connectToServer", props)
+        conn.setAutoCommit(false)
+
+        java.util.List<GroovyRowResult> result = null
+        def sql = new Sql(conn)
+
+        try {
+            result = sql.rows(query)
+        } finally {
+            sql.close()
+            conn.close()
+        }
+        return result
+    }
+    
+    public java.util.List<GroovyRowResult> Execute1СRequest(String query) {
+        def driver = Class.forName('name').newInstance() as Driver
+        def props = new Properties()
+        props.setProperty("user", "user")
+        props.setProperty("password", "password")
+        props.setProperty("autocommit", "false")
+
+        def conn = driver.connect("connectToServer", props)
+        conn.setAutoCommit(false)
+
+        java.util.List<GroovyRowResult> result = null
+        def sql = new Sql(conn)
+
+        try {
+            result = sql.rows(query)
+        } finally {
+            sql.close()
+            conn.close()
+        }
+        return result
+    }
+}
