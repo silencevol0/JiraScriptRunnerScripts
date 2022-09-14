@@ -1,0 +1,19 @@
+List<String> oldStrings = new ArrayList()
+List<String> newStrings = new ArrayList()
+
+
+String newString = """1
+2
+3"""
+String oldString = """2
+3
+4"""
+newStrings = newString.split("\n") as List<String>
+oldStrings = oldString.split("\n") as List<String>
+log.error "List<String> newStrings is - ${newStrings}, List<String> oldStrings is - ${oldStrings}"
+for(String everyString : newStrings.findAll{ !(it in oldStrings)}) {
+    log.error "переборка новых - ${everyString}"
+}
+for(String everyString : oldStrings.findAll{ !(it in newStrings)}) {
+    log.error "переборка старых - ${everyString}"
+}
