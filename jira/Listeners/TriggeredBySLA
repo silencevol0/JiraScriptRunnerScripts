@@ -1,0 +1,236 @@
+/*
+
+ * @Description: Работает с SLA, по окончанию SLA, в зависимости от SLA Name выполняет автоматизации для взаимодействия с другими SLA и созданием заявления на увольнение на основе данных у дочерних заявок.
+В случае выставления задолженности отправляет письмо.
+ */
+
+
+import com.atlassian.jira.event.issue.IssueEvent
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.fields.CustomField
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.index.IssueIndexingService
+import com.atlassian.jira.event.type.EventDispatchOption
+import java.sql.Timestamp
+import com.atlassian.jira.issue.resolution.Resolution
+import com.atlassian.jira.issue.customfields.option.Options
+import com.atlassian.jira.issue.customfields.option.Option
+import com.atlassian.jira.issue.fields.config.FieldConfig
+import com.fasterxml.jackson.databind.node.*
+import org.apache.http.impl.client.CloseableHttpClient
+import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.HttpEntity
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.impl.client.HttpClientBuilder
+import org.apache.http.entity.StringEntity
+import org.apache.http.entity.ContentType
+import com.atlassian.jira.issue.attachment.CreateAttachmentParamsBean
+import com.atlassian.jira.issue.AttachmentManager
+import com.atlassian.jira.util.io.InputStreamConsumer
+import com.atlassian.jira.issue.attachment.Attachment
+
+
+import Projects.OL.NotificationsSender
+
+
+
+new Class_CheckSLAandCreatePDF().run(event)
+class Class_CheckSLAandCreatePDF {
+    
+    NotificationsSender sender = new NotificationsSender()
+    
+	Logger logger = Logger.getLogger(this.class.name)
+	ApplicationUser admin = ComponentAccessor.userManager.getUserByName("USERNAME")  
+	Timestamp ts = new Timestamp(System.currentTimeMillis())
+	IssueIndexingService indexing = (IssueIndexingService) ComponentAccessor.getComponent(IssueIndexingService.class)
+    AttachmentManager attachmentManager = ComponentAccessor.getAttachmentManager()
+	CustomField sourceCF = ComponentAccessor.customFieldManager.getCustomFieldObject(12937)
+    CustomField checkList = ComponentAccessor.customFieldManager.getCustomFieldObject(15001) // checkList
+    CustomField debtOfInfoCF = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(17201) // Информация по задолженности
+    String header = "||Тип задолженности||Сумма задолженности||Количество||Наименование ТМЦ/услуги/актива||Номер договора||Дата договора||Статус задолженности||"
+	String slaName
+    String remaning
+    MutableIssue issue
+    String apiUrl = "APIURL"
+    final String USERNAME = "USERNAME"
+    final String PASSWORD = "PASSWORD"
+	String encodedLogin = Base64.getEncoder().encodeToString("${USERNAME}:${PASSWORD}".getBytes());
+    final String BASIC_AUTH = "Basic ${encodedLogin}"  
+    
+	void run(def event) {
+        logger.debug event
+		logger.setLevel(Level.DEBUG)
+        slaName = event.getAt("thresholdsExceeded").getAt("timeMetric").getAt("name")
+        remaning = event.getAt("thresholdsExceeded").getAt("thresholds").getAt("remainingTime")
+        issue = ComponentAccessor.getIssueManager().getIssueObject(event.getAt("issue").getAt("key") as String)
+        logger.debug "Issue type is >>> ${issue.getIssueType().name}, slaName is >>> ${slaName}, issueKey is >>> ${event.getAt("issue").getAt("key")} remaning is >>> ${remaning}"
+        Collection<MutableIssue> allLinkIssues = ComponentAccessor.getIssueLinkManager().getLinkCollectionOverrideSecurity(issue).getAllIssues() as Collection<MutableIssue>
+        if (issue.getIssueType().name == "Story") {
+            logger.debug "Type == Story, check linked issues - >>> ${allLinkIssues}"
+        	if (slaName == "[До создания заявления]" && remaning == "[[0]]") {
+                logger.debug "Triggered SLAName - До создания заявления, set now Due Date for parrent and sub issues"
+            	setDueDateAndDeleteSLAForAllIssues(issue,allLinkIssues,ts)
+                if (issue.getCustomFieldValue(debtOfInfoCF)) {
+                    String debtOfInfoValue = issue.getCustomFieldValue(debtOfInfoCF)
+                	String[] replacedDebt = debtOfInfoValue.split("\n")
+                    ObjectNode map = JsonNodeFactory.instance.objectNode()
+                	ArrayNode listObjects = map.putArray("Services")
+                	for (String everyDebt : replacedDebt) {
+                        if (everyDebt == header) continue
+                        String[] everyTypeList = everyDebt.split("\\|")
+                        ObjectNode tagObject = listObjects.addObject()
+                        tagObject.put("typeOfDebt",everyTypeList[1])
+                        tagObject.put("amountOfDebt", everyTypeList[2])
+                        tagObject.put("count",everyTypeList[3])
+                        tagObject.put("nameDebt",everyTypeList[4])
+                        tagObject.put("contractNumber",everyTypeList[5])
+                        tagObject.put("dateNumber",everyTypeList[6])
+                        logger.debug("${issue.key} field's map is - ${tagObject}")
+                    }
+                    HttpEntity entity = new StringEntity(map.toString(), ContentType.APPLICATION_JSON) as HttpEntity
+        			String lastErrorResponse = ""
+        			CloseableHttpResponse createRequest = postRequest(apiUrl, entity)
+        			if (createRequest.statusLine.statusCode == 200) {
+                        File statement = createFileFromRest(createRequest)
+                    	addFileToIssue(statement,issue)
+                    	logger.debug "${issue.key} status line to send1c request is - ${createRequest.statusLine.statusCode}. entity is - ${createRequest.entity.content.text}"
+                        List<Attachment> attachments = ComponentAccessor.getAttachmentManager().getAttachments(issue)
+                    	Attachment attachmentForSend = attachments.find {it.getFilename() == "Заявление на удержание.pdf"}
+                    	File attachmentFile = ComponentAccessor.getAttachmentManager().streamAttachmentContent(attachmentForSend, new FileInputStreamConsumer(attachmentForSend.getFilename()))
+                        send("text/html",attachmentFile,attachmentForSend)
+        			} 
+                    if(createRequest.statusLine.statusCode != 200) {
+                       lastErrorResponse = createRequest.entity.content.text
+                       logger.error "${issue.key} Error during remote request. Status line is - ${createRequest.statusLine.statusCode} entity is - ${lastErrorResponse}"
+                       sender.sendMail("EmailAddress","Рест вернул не 200, надо посмотреть", "status Code - ${createRequest.statusLine.statusCode} entity is - ${lastErrorResponse}")
+                    }
+
+                   
+                }  
+            }
+            if (slaName == "[До увольнения сотрудника]" && remaning == "[[0]]") {
+                Resolution resolution = ComponentAccessor.getConstantsManager().getResolutions().findAll{it.name == "Dismissed"}.first()
+                logger.debug "Resolution name is >> - ${resolution}"
+                issue.setResolution(resolution)
+                updateIssue(issue,false)
+            }
+        }
+        if (issue.getIssueType().name == "Task" && slaName == "[Повторная отправка PDF]" && remaning == "[[0]]") {
+            MutableIssue parentIssue = allLinkIssues.first()
+            issue.setDueDate(null)
+            updateIssue(issue,false)
+            if (parentIssue.getCustomFieldValue(sourceCF) != "Повторная отправка PDF") {
+                parentIssue.setCustomFieldValue(sourceCF,"Повторная отправка PDF")
+                updateIssue(parentIssue,true)
+            }
+        }
+	}
+    
+    CloseableHttpResponse postRequest(String url, HttpEntity entity){
+        log.debug "Send POST request to: ${url}"
+        CloseableHttpClient httpClient
+        CloseableHttpResponse resp
+        try{
+            httpClient = HttpClientBuilder.create().build()
+            HttpPost httpPost = new HttpPost(url)
+            httpPost.setHeader("Authorization", BASIC_AUTH)
+            httpPost.setHeader("Content-Type", "application/json")
+            httpPost.setEntity(entity)
+            resp = httpClient.execute(httpPost)
+ 		}
+        catch(Exception e){
+            log.error "POST error: ${e.message}"
+        }
+        finally{
+            log.debug "POST request to: ${url} done"
+            return resp
+        }
+    }
+    
+    void addFileToIssue(File file, MutableIssue issue) {
+        logger.debug(file.name)
+        
+        CreateAttachmentParamsBean bean = new CreateAttachmentParamsBean.Builder()
+                .file(file)
+                .filename(file.name)
+                .contentType("application/pdf")
+                .author(admin)
+                .issue(issue)
+                .build()
+        attachmentManager.createAttachment(bean)
+        
+        logger.debug "${file.name} attached to ${issue.key}"
+        logger.debug file.delete() ? "temp file deleted" :  "temp file not deleted"
+    }
+    
+    void updateIssue(MutableIssue issue, boolean mode) {
+        if (mode == false) ComponentAccessor.getIssueManager().updateIssue(admin,issue,EventDispatchOption.DO_NOT_DISPATCH,false)
+    	if (mode == true) ComponentAccessor.getIssueManager().updateIssue(admin,issue,EventDispatchOption.ISSUE_UPDATED,false)
+    	indexing.reIndex(issue)
+	}
+       
+    void setDueDateAndDeleteSLAForAllIssues(MutableIssue issue, Collection<MutableIssue> allLinkIssues, Timestamp dateOrNull) {
+        issue.setDueDate(dateOrNull)
+        issue.setCustomFieldValue(checkList,deleteValueCheckListField("SLA не завершён",issue))
+        updateIssue(issue,false)
+        for (MutableIssue subIssue : allLinkIssues) {
+            subIssue.setCustomFieldValue(checkList,deleteValueCheckListField("SLA не завершён",subIssue))
+            subIssue.setDueDate(dateOrNull)
+            updateIssue(subIssue,false)
+        }
+    }
+    
+    List<Option> deleteValueCheckListField(String value, MutableIssue issue) {
+    	List<Option> toSetFieldValue = new ArrayList()
+        if (issue.getCustomFieldValue(checkList)) toSetFieldValue = issue.getCustomFieldValue(checkList) as List<Option>
+		FieldConfig configCheckList = checkList.getRelevantConfig(issue)
+		Options options = ComponentAccessor.optionsManager.getOptions(configCheckList)
+		Option option = options.find {it.value == value}
+		toSetFieldValue.remove(option)
+		return toSetFieldValue
+    }
+    
+    void send(String emailFormat, File attachmentFile, Attachment attachment) {
+        String subject = """SUBJECT"""
+        String body = "BODY"
+        sender.sendMailWithAttachment(issue.reporter.getEmailAddress(),subject,body,emailFormat,attachmentFile,attachment)
+    }
+    
+    File createFileFromRest(CloseableHttpResponse createRequest) {
+        String fileName = "Заявление на удержание.pdf"
+        FileOutputStream fos = new FileOutputStream("/tmp/${fileName}")
+        InputStream is = createRequest.getEntity().getContent()
+        byte[] byt = new byte[1024];
+        int bytLength
+        while ((bytLength = is.read(byt)) != -1) {
+        	fos.write(byt, 0, bytLength);
+        }
+        fos.flush()
+        fos.close()
+        is.close()
+        logger.debug "/tmp/${fileName} saved"
+		File statement = new File("/tmp/${fileName}")
+        return statement
+    }
+    
+    
+    class FileInputStreamConsumer implements InputStreamConsumer<File> {
+		private final String filename;
+
+		public FileInputStreamConsumer(String filename) {
+    		this.filename = filename;
+    	}
+
+        @Override
+        File withInputStream(InputStream is) throws IOException {       
+            String filename = FilenameUtils.getBaseName(filename)
+            final File attachmentFile = File.createTempFile("${filename}", FilenameUtils.getExtension(filename))
+            StreamUtils.copy(is, new FileOutputStream(attachmentFile))
+            return attachmentFile
+        }
+	} 
+}
+
