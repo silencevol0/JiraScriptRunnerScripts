@@ -1,0 +1,85 @@
+// Отправляет уведомление с атачами, не использует depricated методы.
+
+
+
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.watchers.WatcherManager
+import com.atlassian.jira.issue.attachment.CreateAttachmentParamsBean
+import com.atlassian.jira.issue.AttachmentManager
+import com.atlassian.jira.util.io.InputStreamConsumer
+import com.atlassian.jira.issue.attachment.Attachment
+import org.apache.commons.io.FilenameUtils
+import org.springframework.util.StreamUtils
+import com.sun.mail.imap.IMAPProvider
+import com.atlassian.mail.server.MailServerManager
+import com.atlassian.mail.server.SMTPMailServer
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.mail.Email
+import com.atlassian.mail.queue.SingleMailQueueItem
+import com.atlassian.jira.issue.attachment.Attachment
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.fields.CustomField
+import javax.mail.Multipart
+import javax.mail.internet.MimeBodyPart
+import javax.mail.internet.MimeMultipart
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+
+def issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUE")
+
+List<ApplicationUser> listToSend = ComponentAccessor.getGroupManager().getUsersInGroup("NAMEGROUP") as ArrayList
+String emailTo = String.join(",",listToSend*.emailAddress)
+String subject = """subject"""
+String body = """
+				body
+              """
+Map<File,Attachment> FileAndAttahmentMap = new HashMap()
+List<Attachment> attachments = ComponentAccessor.getAttachmentManager().getAttachments(issue)
+for (Attachment attachment : attachments) {
+	File attachmentFile = ComponentAccessor.getAttachmentManager().streamAttachmentContent(attachment, new FileInputStreamConsumer(attachment.getFilename()))
+    FileAndAttahmentMap.put(attachmentFile,attachment)
+}
+sendMailWithAttachment("toEmail@dotcom",subject,body,FileAndAttahmentMap)  
+
+boolean sendMailWithAttachment(String emailAddr,String subject, String body, Map<File,Attachment> FileAndAttahmentMap) {
+        SMTPMailServer mailServer = ComponentAccessor.mailServerManager.defaultSMTPMailServer 
+        boolean wasAddedToQueue = false
+        if (mailServer) {
+            Email mail = new Email(emailAddr)
+            mail.setSubject(subject)
+            Multipart multipart = new MimeMultipart("mixed")
+    		MimeBodyPart bodyPart = new MimeBodyPart()
+    		bodyPart.setContent(body, "text/html; charset=utf-8")
+    		multipart.addBodyPart(bodyPart)
+            for (Map.Entry<String, String> entry : FileAndAttahmentMap.entrySet()) {
+    			MimeBodyPart attachmentPart = new MimeBodyPart()
+        		attachmentPart.attachFile(entry.getKey(), (entry.getValue() as Attachment).getMimetype(), null)
+        		attachmentPart.setFileName((entry.getValue() as Attachment).getFilename())
+        		multipart.addBodyPart(attachmentPart) 
+			}
+    		
+            mail.setMultipart(multipart)
+    		mail.setMimeType("multipart/mixed")
+    		SingleMailQueueItem smqi = new SingleMailQueueItem(mail)
+    		ComponentAccessor.getMailQueue().addItem(smqi)
+            wasAddedToQueue = true
+        }
+        return wasAddedToQueue
+    }
+
+class FileInputStreamConsumer implements InputStreamConsumer<File> {
+	private final String filename;
+
+	public FileInputStreamConsumer(String filename) {
+    	this.filename = filename;
+    }
+
+    @Override
+    File withInputStream(InputStream is) throws IOException {       
+        String filename = FilenameUtils.getBaseName(filename)
+        final File attachmentFile = File.createTempFile("${filename}", FilenameUtils.getExtension(filename))
+        StreamUtils.copy(is, new FileOutputStream(attachmentFile))
+        return attachmentFile
+    }
+} 
