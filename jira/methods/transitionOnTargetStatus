@@ -1,0 +1,36 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.user.ApplicationUser
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import com.atlassian.jira.workflow.TransitionOptions.Builder
+import com.atlassian.jira.bc.issue.IssueService
+import com.atlassian.jira.workflow.JiraWorkflow
+import com.atlassian.jira.issue.status.Status
+import com.opensymphony.workflow.loader.ActionDescriptor
+import com.opensymphony.workflow.loader.StepDescriptor
+
+MutableIssue issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUEKEY")
+Status status = issue.getStatus()
+
+IssueService.IssueResult transitIssue(MutableIssue issue, String targetStatus){
+    JiraWorkflow workflow = ComponentAccessor.workflowManager.getWorkflow(issue)
+    List<ActionDescriptor> transitionsList = workflow.getLinkedStep(status).getActions()
+    for (ActionDescriptor transit : transitionsList) {
+        int targetStepId = transit.getUnconditionalResult().getStep()
+        StepDescriptor targetStepDescriptor = workflow.getDescriptor().getStep(targetStepId)
+        String targetStepName = workflow.getLinkedStatus(targetStepDescriptor).getName() 
+        logger.debug """Transition Name: ${transit.getName()} | Target Step Status: ${targetStepName}"""
+        if (targetStepName == targetStatus) {
+            int transitionID = transit.getId()
+            Builder builder =  new Builder()
+            Builder transopt = builder.skipConditions().skipValidators().skipPermissions()
+            IssueService.TransitionValidationResult transitionValidationResult = issueService.validateTransition(admin, issue.getId(), transitionID, issueService.newIssueInputParameters(),transopt.build())
+            logger.debug("${issue.key} ${transitionValidationResult.isValid()}")
+            if (transitionValidationResult.isValid()) {
+                IssueService.IssueResult transitionResult = issueService.transition(admin, transitionValidationResult)
+                break
+           }
+       }
+   }  
+}
