@@ -1,0 +1,10 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.comments.CommentManager
+import com.atlassian.jira.util.json.JSONObject
+
+ApplicationUser admin = ComponentAccessor.userManager.getUserByName("JIRA")
+CommentManager commentManager = ComponentAccessor.getCommentManager()
+String comment = "Задача возвращена в бэклог после двухнедельной тишины"
+Map<String,JSONObject> properties = [("sd.public.comment"): new JSONObject(["internal": true] as Map)]
+commentManager.create(issue, admin, comment, null, null, new Date(), properties, true)

@@ -1,0 +1,10 @@
+    boolean isInternal(Comment lastComment) {
+        boolean checker = false
+        CommentPropertyService commentPropertyService = ComponentAccessor.getComponent(CommentPropertyService)
+        EntityPropertyImpl epi = commentPropertyService.getProperty(admin,lastComment.id,"sd.public.comment").getEntityProperty().getOrNull() as EntityPropertyImpl
+        if (epi) {
+            Map<String,String> jsonMap = new JsonSlurper().parseText(epi.getValue()) as Map
+        	checker = jsonMap.getAt("internal")
+        }
+        return checker	
+    }

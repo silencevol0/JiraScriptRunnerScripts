@@ -185,9 +185,9 @@ class Сlass_ProjectOL_CreateIssue {
         }
         log.debug("New issue ${newTask}")
     	Map<String,Object> newIssueParams = ["issue" : newTask] as Map<String,Object>   
-        newTask = issueManager.createIssueObject(admin, newIssueParams) as MutableIssue
-        log.debug "Issue with summary ${newTask.summary} created > issue key > ${newTask.key}"
-        return newTask      
+        newTask = issueMa with summary ${newTask.summary} created > issue key > ${newTask.key}"
+        return newTask  nager.createIssueObject(admin, newIssueParams) as MutableIssue
+        log.debug "Issue    
     }
     
     Integer setOption(CustomField cf, def value) {

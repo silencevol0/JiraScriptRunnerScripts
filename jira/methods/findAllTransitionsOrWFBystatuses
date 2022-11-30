@@ -1,0 +1,37 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.user.ApplicationUser
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import com.atlassian.jira.workflow.TransitionOptions.Builder
+import com.atlassian.jira.bc.issue.IssueService
+import com.atlassian.jira.workflow.JiraWorkflow
+import com.atlassian.jira.issue.status.Status
+import com.opensymphony.workflow.loader.ActionDescriptor
+import com.opensymphony.workflow.loader.StepDescriptor
+import com.atlassian.jira.workflow.WorkflowSchemeManager
+import com.atlassian.jira.workflow.AssignableWorkflowScheme
+import com.atlassian.jira.project.Project
+import com.atlassian.jira.issue.issuetype.IssueType
+import com.atlassian.jira.workflow.WorkflowScheme
+
+List<JiraWorkflow> allWorkFlows = ComponentAccessor.getWorkflowManager().getActiveWorkflows() as List
+List<String> wfList = new ArrayList()
+for (JiraWorkflow wf : allWorkFlows) {
+    List<Status> statusesList = wf.getLinkedStatusObjects()
+    for (Status status : statusesList) {
+        if (status.getName() == "Ожидаем выхода") {
+            log.error "Этот WF имеет по крайней мере один статус - 'Ожидаем выхода' - ${wf.getName()}"
+            List<ActionDescriptor> transitionsList = wf.getLinkedStep(status).getActions()
+            for (ActionDescriptor transit : transitionsList) {
+                int targetStepId = transit.getUnconditionalResult().getStep()
+                StepDescriptor targetStepDescriptor = wf.getDescriptor().getStep(targetStepId)
+                String targetStepName = wf.getLinkedStatus(targetStepDescriptor).getName() 
+                if (targetStepName == "Ожидаем выхода") {
+                    log.error """CurrentStatus: ${status.getName()} | Transition Name: ${transit.getName()} | Target Step Status: ${targetStepName} and WF Name - ${wf.getName()}"""
+                }
+            }
+        }
+    }
+}
+

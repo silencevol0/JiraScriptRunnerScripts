@@ -1,0 +1,171 @@
+import com.atlassian.jira.component.ComponentAccessor 
+import com.atlassian.jira.issue.MutableIssue 
+import com.atlassian.jira.user.ApplicationUser 
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate 
+import groovy.transform.BaseScript 
+import org.apache.log4j.Level 
+import org.apache.log4j.Logger 
+import javax.ws.rs.core.MediaType 
+import javax.ws.rs.core.MultivaluedMap 
+import javax.ws.rs.core.Response 
+
+@BaseScript CustomEndpointDelegate delegate 
+uploadTimesheetGet(httpMethod: "GET", groups: ["GROUP1","GROUP2","GROUP3", "GROUP4"]) { 
+    MultivaluedMap queryParams -> new Class_UploadTimesheetGet().run(queryParams) 
+} 
+
+class Class_UploadTimesheetGet { 
+    MutableIssue issue 
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName('USERNAME') 
+    Logger logger = Logger.getLogger(this.class.name) 
+    
+    def run(MultivaluedMap queryParams) { 
+        logger.setLevel(Level.DEBUG) 
+        Long issueId = queryParams.getFirst("issueid") as Long 
+        issue = ComponentAccessor.getIssueManager().getIssueObject(issueId)
+        String issueKey = issue.getKey()
+        String currentUserEmail = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser().getEmailAddress()
+        String encodedEmail = URLEncoder.encode(currentUserEmail, "UTF-8");
+        logger.debug("queryParams: ${queryParams} and issue is >>> ${issue}") 
+        String valueContactFormat = issue.getCustomFieldValue(ComponentAccessor.getCustomFieldManager().getCustomFieldObject(11005))
+        String form 
+        String mode = ""
+        if (valueContactFormat.toString() == "Аутстаф") {
+            mode = """
+            <br>
+			<h3><p><span>В Timesheet использовать ставки с подрядчиком:</span></p></h3>
+            <form class="aui">
+            	<fieldset class="group"> 
+            		<div class="radio">
+            			<input class="radio" type="radio" checked="checked"
+            			name="radiobuttons" id="radioButtonOne">
+            			<label for="radioButtonOne">Нет</label>
+            		</div>
+            		<div class="radio">
+            			<input class="radio" type="radio"
+            			name="radiobuttons" id="radioButtonTwo">
+            			<label for="radioButtonTwo">Да</label>
+            		</div>
+            	</fieldset>
+            </form>"""
+        
+        }
+        
+        form = buildForm(mode, issueKey, encodedEmail)
+        return response(form) 
+    }
+    
+    Response response(String entity) { 
+    	return Response.ok() 
+        	.type(MediaType.TEXT_HTML) 
+            .entity(entity) 
+            .build() 
+    } 
+    
+    String buildForm(String mode, String issueKey, String encodedEmail) { 
+        return """
+        <section role="dialog" id="upload-timesheet-dialog" class="aui-layer aui-dialog2 aui-dialog2-medium" data-aui-remove-on-hide="true" aria-hidden="true" onchange='validationForEmptyField()'>
+            <header class="aui-dialog2-header">
+                <h2 class="aui-dialog2-header-main">Выгрузить Timesheet</h2>
+                <button class="aui-close-button" type="button" aria-label="close"></button>
+            </header>
+            <div class="aui-dialog2-content">
+                <div id="container" style="width:px">
+                    <form id="form" class="aui" name="form">
+                    	<h3><p>Выберите период, за который необходимо сформировать Timesheet</p></h3><br>
+                        <div class="aui-fields-group"> 
+                        	<div class="field-group">
+                                <label for="text-input">Дата начала периода<span class="aui-icon icon-required">required</span></label>
+                                <input class="aui-date-picker1" style = "margin-top : 1rem"  type="date" id="dateOpen" name="text-input" title="Text input">
+                            </div>
+                        	<br>
+                        	<div class="field-group">
+                        		<label for="Text input">Дата окончания периода <span class="aui-icon icon-required">required</span></label>
+                        		<input class="aui-date-picker2" type="date" style = "margin-top : 1rem" type="date" id="dateClose" name="Text input" title="Text input">
+                        	</div>
+                        </div>
+                        ${mode}
+                        <button id="form_submit" class="aui-button aui-button-primary" type="Выгрузить" style="display: none" ></button>
+                    </form> 
+                </div>
+            </div>
+            <footer class="aui-dialog2-footer"> 
+            	<div class="aui-dialog2-footer-actions">
+            		<button disabled id="submit" class="aui-button aui-button-primary">Выгрузить</button>
+                </div>
+            </footer>
+    	</section>
+        
+        <script>
+        
+        	function validationForEmptyField() {
+            	var submitButton = document.querySelector("#submit")
+                var datePickerOne = document.querySelector(".aui-date-picker1")
+                var datePickerTwo = document.querySelector(".aui-date-picker2")
+                let isValid = true
+                if (datePickerOne.value == "" || datePickerTwo.value == "") isValid = false
+                if (isValid) {
+            		submitButton.removeAttribute('disabled') 
+          		} 
+                else {
+                    submitButton.setAttribute('disabled','disabled') 
+                } 
+            }
+            
+        
+        	AJS.toInit(() => {
+            
+            	AJS.\$("#submit").click(e => {
+                    submit();
+                    AJS.dialog2("#upload-timesheet-dialog").remove();
+                    
+                });
+            	
+                AJS.\$(document).ready(function() {
+                	AJS.\$('#dateOpen').datePicker({'overrideBrowserDefault': true});
+                });
+                
+                AJS.\$(document).ready(function() {
+                	AJS.\$('#dateClose').datePicker({'overrideBrowserDefault': true});
+                });
+                
+                function submit() {
+                	let employeeKey = "${issueKey}"
+                    let email = "${encodedEmail}"
+                    let startDate = document.querySelector(".aui-date-picker1").value
+                    let endDate = document.querySelector(".aui-date-picker2").value
+                    let isChecked = false
+                    let checker = document.querySelector("#radioButtonTwo")
+                    if(checker) {
+                    	if(checker.checked) {
+                        	isChecked = true
+                        }
+                    }
+                    new Promise((resolve, reject) => {
+                        AJS.\$.ajax({
+                            url: AJS.params.baseURL + "/rest/scriptrunner/latest/custom/uploadTimesheetPost",
+                            type: 'POST',
+                            dataType: 'json',
+                            contentType: "application/json",
+                            data: JSON.stringify({
+                                email: email,
+                                startDate: startDate,
+                                endDate: endDate,
+                                isChecked: "" + isChecked + "",
+                                employeeKey: employeeKey
+                            }),
+                            success: response => {
+                                resolve();
+                                location.reload();
+                                
+                            }
+                        });
+                    });
+                }
+       
+            });
+        </script>
+       
+        """
+    } 
+}
