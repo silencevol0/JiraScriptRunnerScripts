@@ -1,0 +1,73 @@
+
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import groovy.transform.BaseScript
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import org.apache.http.client.methods.CloseableHttpResponse
+import com.atlassian.jira.issue.MutableIssue
+import org.apache.http.impl.client.CloseableHttpClient
+import org.apache.http.client.methods.HttpGet
+import javax.ws.rs.core.MultivaluedMap
+import javax.ws.rs.core.Response
+import org.apache.http.impl.client.HttpClientBuilder
+import javax.ws.rs.core.MediaType 
+import com.atlassian.jira.issue.comments.CommentManager
+
+@BaseScript CustomEndpointDelegate delegate
+Class_ManualSendNDA(httpMethod: "GET", groups: ["GROUPS"]) { 
+    MultivaluedMap queryParams ->
+	new Class_ManualSendNDA().run(queryParams)
+}
+
+class Class_ManualSendNDA {
+
+    ApplicationUser admin = ComponentAccessor.getUserManager().getUserByName("USERNAME") 
+    CommentManager commentManager = ComponentAccessor.getCommentManager()
+    Logger logger = Logger.getLogger(this.class.name)
+    MutableIssue curIssue
+    
+
+    final String BASIC_AUTH = "BASIC AUTH"    
+
+    def run(MultivaluedMap queryParams) {
+    
+        logger.setLevel(Level.DEBUG) 
+    	String issueKey = queryParams.getFirst("issue") as String
+        String apiUrl = "URL"
+    	MutableIssue issue = ComponentAccessor.getIssueManager().getIssueObject(issueKey) as MutableIssue
+    	CloseableHttpResponse createRequest = getRequest(apiUrl)
+        String lastErrorResponse = createRequest.entity.content.text
+    	if (createRequest.statusLine.statusCode == 200) {
+            logger.debug "${issue.key} status line to send request is - ${createRequest.statusLine.statusCode}. entity is - ${lastErrorResponse}"
+            commentManager.create(issue, admin, "COMMENT", false)
+        } 
+        if(createRequest.statusLine.statusCode != 200){
+           logger.error "${issue.key} Error during remote request. Status line is - ${createRequest.statusLine.statusCode} entity is - ${lastErrorResponse}"
+           commentManager.create(issue, admin, "COMMENT", false)
+        }	
+        Response.temporaryRedirect(URI.create("URL RELOAD PAGE")).build()
+} 
+    
+    CloseableHttpResponse getRequest(String url){
+        logger.debug "Send GET request to: ${url}"
+        CloseableHttpClient httpClient
+        CloseableHttpResponse resp
+        try{
+            httpClient = HttpClientBuilder.create().build()
+            HttpGet httpGet = new HttpGet(url)
+            httpGet.setHeader("Authorization", BASIC_AUTH)
+            httpGet.setHeader("Content-Type", "application/json")
+            resp = httpClient.execute(httpGet)
+        }
+        catch(Exception e){
+            logger.error "GET error: ${e.message}"
+        }
+        finally {
+            logger.debug "GET request to: ${url} done"
+            httpClient.close()
+            return resp
+        }    
+    }
+}

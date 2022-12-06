@@ -11,17 +11,20 @@ import com.opensymphony.workflow.loader.ActionDescriptor
 import com.opensymphony.workflow.loader.StepDescriptor
 
 MutableIssue issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUEKEY")
-Status status = issue.getStatus()
+IssueService issueService = ComponentAccessor.getIssueService()
+Status currentStatus = issue.getStatus()
+String targetStatusId = "STATUSID(EXAMPLE:10999)"
 
-IssueService.IssueResult transitIssue(MutableIssue issue, String targetStatus){
+IssueService.IssueResult transitIssue(MutableIssue issue, String targetStatusId, Status currentStatus){
     JiraWorkflow workflow = ComponentAccessor.workflowManager.getWorkflow(issue)
-    List<ActionDescriptor> transitionsList = workflow.getLinkedStep(status).getActions()
+    List<ActionDescriptor> transitionsList = workflow.getLinkedStep(currentStatus).getActions()
     for (ActionDescriptor transit : transitionsList) {
         int targetStepId = transit.getUnconditionalResult().getStep()
         StepDescriptor targetStepDescriptor = workflow.getDescriptor().getStep(targetStepId)
-        String targetStepName = workflow.getLinkedStatus(targetStepDescriptor).getName() 
-        logger.debug """Transition Name: ${transit.getName()} | Target Step Status: ${targetStepName}"""
-        if (targetStepName == targetStatus) {
+        String targetStepName = workflow.getLinkedStatus(targetStepDescriptor).getName()
+        String statusId = workflow.getLinkedStatus(targetStepDescriptor).getId()
+        //logger.debug """Transition Name: ${transit.getName()} | Target Step Status: ${targetStepName} | Status id: ${statusId}"""
+        if (targetStepName == targetStatusId) {
             int transitionID = transit.getId()
             Builder builder =  new Builder()
             Builder transopt = builder.skipConditions().skipValidators().skipPermissions()
