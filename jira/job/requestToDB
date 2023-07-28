@@ -1,0 +1,101 @@
+
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import java.sql.Connection
+import java.sql.Driver
+import java.sql.Connection
+import java.sql.SQLException
+import groovy.sql.GroovyRowResult
+import groovy.sql.Sql
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.bc.issue.search.SearchService
+import com.atlassian.jira.jql.parser.JqlQueryParser
+import com.atlassian.jira.web.bean.PagerFilter
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.query.Query
+import com.atlassian.jira.issue.search.SearchResults
+import java.sql.Timestamp
+import java.text.SimpleDateFormat
+import com.atlassian.jira.issue.fields.CustomField
+
+new Class_RequestToDataBase().run()
+class Class_RequestToDataBase {
+    
+    Logger logger = Logger.getLogger(this.class.name)
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName("JIRA")
+    JqlQueryParser jqlQueryParser = ComponentAccessor.getComponent(JqlQueryParser)
+	SearchService searchService = ComponentAccessor.getComponent(SearchService)
+    IssueManager issueManager = ComponentAccessor.getIssueManager()
+    CustomField dateOfRecallCF = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(20707) 
+    CustomField emailCF = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(10600) 
+    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    Date currentDateMinusThirtyMinutes = new Date().minus(3)
+    
+    void run() {    
+        logger.setLevel(Level.DEBUG)
+        List<MutableIssue> issuesForCompare = foundIssueByJql()
+        List<Map<String,String>> results = getDataFromDataBase() as List<Map<String,String>>;
+        for (Map<String,String> result : results) { 
+            String email = result.getAt("user_email")
+            if (email.contains("guest_email_")) {
+                email = result.getAt("feedback_email")
+            }
+            String message = result.getAt("message")
+            String rating = result.getAt("rating")
+            Date date = dateFormat.parse(result.getAt("date_time"))
+        	Timestamp timeStampDate = new Timestamp(date.getTime())
+            if (issuesForCompare.find{it.getCustomFieldValue(dateOfRecallCF) == timeStampDate && it.getCustomFieldValue(emailCF) == email}) {
+                logger.debug "The task already exists, no re-creation is required"
+                continue
+            }
+            else if (message != "null" && message != null && message != "" || (email && rating.toInteger() in [1,2,3,4])) {
+                logger.debug "message - ${message}, email - ${email}, rating - ${rating.toInteger()}, issue created"
+                createIssue(email,timeStampDate,message,rating,result.getAt("user_agent"))
+            }
+            else logger.debug "result - ${result}, The task will not be created, does not fit the requirements"
+        }
+    }
+    
+    List<MutableIssue> foundIssueByJql() {
+        String jql = """project = PROJECT and created > "${currentDateMinusThirtyMinutes.format("yyyy/MM/dd HH:mm")}" """
+        Query query = jqlQueryParser.parseQuery(jql) 
+        SearchResults results = searchService.search(admin, query, PagerFilter.getUnlimitedFilter())
+        Collection<MutableIssue> issues = results.results.collect {issueManager.getIssueObject(it.id)} as List<MutableIssue>
+        logger.debug "JQL for found - ${jql}, count found issues ${issues.size()}"
+        return issues
+    }
+    
+    List<GroovyRowResult> getDataFromDataBase() {
+        Properties props = new Properties()
+        props.setProperty("user", "USER")
+        props.setProperty("password", "PASSWORD")
+        ArrayList<GroovyRowResult> results = null
+        Driver driver = Class.forName('org.postgresql.Driver').newInstance() as Driver
+        Connection connection = driver.connect("""jdbc:postgresql://URL""", props) 
+        connection.setAutoCommit(false)
+        Sql sql = new Sql(connection)
+        results = (ArrayList<GroovyRowResult>)sql.rows("""SELECT""")
+        sql.close()
+        connection.close()
+        return results
+    }
+    
+    void createIssue(String email, Timestamp timeStampDate, String message, String rating, String userAgent) {
+ 		MutableIssue newIssue = ComponentAccessor.issueFactory.getIssue()
+        if (email) newIssue.setSummary("SUMMARY")
+        else newIssue.setSummary("SUMMARY")
+        newIssue.setReporter(admin)
+        newIssue.setProjectObject(ComponentAccessor.getProjectManager().getProjectObjByKey("PROJECT"))
+        newIssue.setIssueTypeId(ComponentAccessor.getConstantsManager().getAllIssueTypeObjects().find{it.getName() == "ISSUETYPE"}.id)
+        newIssue.setCustomFieldValue(ComponentAccessor.getCustomFieldManager().getCustomFieldObject(20704),rating.toDouble())
+        if (email) newIssue.setCustomFieldValue(emailCF,email)
+        if (userAgent != "" && userAgent != null && userAgent != "null") newIssue.setCustomFieldValue(ComponentAccessor.getCustomFieldManager().getCustomFieldObject(20705),userAgent)
+        newIssue.setCustomFieldValue(dateOfRecallCF,timeStampDate)
+        if (message != "null" && message != null && message != "") newIssue.setDescription(message)
+		else newIssue.setDescription(null)
+        Map<String,Object> newIssueParams = ["issue" : newIssue] as Map<String,Object>
+        ComponentAccessor.getIssueManager().createIssueObject(admin, newIssueParams)
+    }
+}

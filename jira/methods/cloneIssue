@@ -1,0 +1,14 @@
+    MutableIssue cloneIssue(MutableIssue correctContasksIssue) {   
+        def cloneIssueBean = ScriptRunnerImpl.scriptRunner.createBean(CloneIssue)
+        def inputs = [ 
+            'FIELD_TARGET_PROJECT' : correctContasksIssue.getProjectObject().getKey(), 
+            'FIELD_SELECTED_FIELDS': null, // clone issue with all fields 
+        ] as Map<String, Object> 
+
+        def executionContext = [  
+            issue: correctContasksIssue as Object, 
+        ]
+        def result =  cloneIssueBean.execute(inputs, executionContext)
+		MutableIssue newIssue = ComponentAccessor.getIssueManager().getIssueObject(result.newIssue.getAt("key").toString())
+        return newIssue
+    }

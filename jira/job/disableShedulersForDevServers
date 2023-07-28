@@ -1,0 +1,55 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.scheduler.SchedulerService
+import com.atlassian.scheduler.status.JobDetails
+import com.atlassian.scheduler.config.JobId
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.DeserializationFeature
+import com.atlassian.scheduler.config.JobRunnerKey
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+
+String url = ComponentAccessor.getApplicationProperties().getString("jira.baseurl")
+
+
+if (!url.contains("URL PROD")) {
+        Logger logger = Logger.getLogger("DisableAllJobsInDEVServices")
+        logger.setLevel(Level.DEBUG)
+        SchedulerService schedulerService = (SchedulerService) ComponentAccessor.getComponent(SchedulerService)
+        Set<JobRunnerKey> jobRunnerKeys = schedulerService.getJobRunnerKeysForAllScheduledJobs() 
+        String techPlugins = "pluginsJobs"
+        String scriptrunnerJobs = "com.onresolve.scriptrunner:UserScriptJob"
+
+        for (JobRunnerKey jobRunnerKey : jobRunnerKeys) {
+            logger.debug jobRunnerKey
+            if (jobRunnerKey.toString().contains(techPlugins) || jobRunnerKey.toString().contains(scriptrunnerJobs)) {
+                List<JobDetails> jobs = schedulerService.getJobsByJobRunnerKey(jobRunnerKey)
+                for (JobDetails job : jobs) {
+                    JobId jobId = job.getJobId()
+                    String params = job.getParameters().get("JOB")
+                    if (isSkippedJob(params)) continue
+                    logger.debug jobRunnerKey
+                    //schedulerService.unscheduleJob(jobId)
+                }
+            }
+        }
+
+}
+
+boolean isSkippedJob(String json) {
+    if (json == null || json.isEmpty()) {
+        return false
+    }
+
+    ObjectMapper mapper = new ObjectMapper()
+	mapper.configure(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, true)
+
+    try {
+    	def values = mapper.readValue(json, Map)
+		//тут можно добавить исключения 
+        return values['FIELD_NOTES'] == "Disable Jobs on Jira@DEVs"
+    } catch (ignored) {
+        return false
+    }
+}

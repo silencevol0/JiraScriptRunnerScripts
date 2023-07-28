@@ -5,7 +5,7 @@ import com.atlassian.jira.issue.fields.CustomField
 import com.atlassian.jira.event.type.EventDispatchOption
 import com.atlassian.jira.issue.index.IssueIndexingService
 
-def issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUEKEY")
+MutableIssue issue = ComponentAccessor.getIssueManager().getIssueObject("ISSUEKEY")
 
 CustomField cf = ComponentAccessor.customFieldManager.getCustomFieldObjectsByName("Название филда").first()
 ApplicationUser admin = ComponentAccessor.userManager.getUserByName("APPLICATIONUSER")

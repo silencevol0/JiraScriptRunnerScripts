@@ -21,10 +21,10 @@ IssueService.IssueResult transitIssue(MutableIssue issue, String targetStatusId,
     for (ActionDescriptor transit : transitionsList) {
         int targetStepId = transit.getUnconditionalResult().getStep()
         StepDescriptor targetStepDescriptor = workflow.getDescriptor().getStep(targetStepId)
-        String targetStepName = workflow.getLinkedStatus(targetStepDescriptor).getName()
+        String currentTargetStatusId = workflow.getLinkedStatus(targetStepDescriptor).getId()
         String statusId = workflow.getLinkedStatus(targetStepDescriptor).getId()
-        //logger.debug """Transition Name: ${transit.getName()} | Target Step Status: ${targetStepName} | Status id: ${statusId}"""
-        if (targetStepName == targetStatusId) {
+        //logger.debug """Transition Name: ${transit.getName()} | Target Step Status ID: ${currentTargetStatusId} | Status id: ${statusId}"""
+        if (currentTargetStatusId == targetStatusId) {
             int transitionID = transit.getId()
             Builder builder =  new Builder()
             Builder transopt = builder.skipConditions().skipValidators().skipPermissions()

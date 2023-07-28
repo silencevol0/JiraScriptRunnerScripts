@@ -1,0 +1,8 @@
+<style type="text/css">
+        #aui-flag-container {
+            display: none;
+        }
+        #announcement-banner {
+            display: none;
+        }
+</style>

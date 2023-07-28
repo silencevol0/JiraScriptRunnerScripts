@@ -1,0 +1,11 @@
+<script type='text/javascript'>
+AJS.\$(document).ready(function(){
+  Array.from(document.getElementsByClassName("checkbox")).forEach(function(cbox){
+    if(cbox.getAttribute('name')=='customfield_20907'){
+        cbox.parentNode.style.cssFloat='left';
+        cbox.parentNode.style.width='25%';
+    }
+});
+});
+</script>
+// set to description field in behaviour

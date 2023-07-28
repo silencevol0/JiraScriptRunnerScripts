@@ -1,0 +1,144 @@
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.fields.CustomField
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+import com.atlassian.jira.issue.*
+import com.atlassian.jira.event.issue.IssueEvent
+import com.sun.mail.imap.IMAPProvider
+import com.atlassian.mail.server.MailServerManager
+import com.atlassian.mail.server.SMTPMailServer
+import com.atlassian.mail.Email
+import com.atlassian.mail.queue.SingleMailQueueItem
+import com.atlassian.jira.issue.comments.Comment
+import com.atlassian.jira.entity.property.EntityPropertyImpl
+import com.atlassian.jira.issue.attachment.Attachment
+import java.sql.Timestamp
+import javax.mail.Multipart
+import javax.mail.internet.MimeBodyPart
+import javax.mail.internet.MimeMultipart
+import com.atlassian.jira.util.io.InputStreamConsumer
+import org.apache.commons.io.FilenameUtils
+import org.springframework.util.StreamUtils
+import com.atlassian.jira.issue.attachment.TemporaryWebAttachment
+import com.atlassian.jira.issue.attachment.TemporaryWebAttachmentManager
+import webwork.action.ActionContext
+import com.atlassian.jira.issue.IssueFieldConstants
+
+new Class_SendEmailToCustomer().run(issue)
+class Class_SendEmailToCustomer {
+    
+    
+    Logger logger = Logger.getLogger(this.class.name)
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName("APPLICATIONUSER")
+    CustomField emailCF = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(10600) // Email
+
+    
+    void run(MutableIssue issue) {
+        logger.setLevel(Level.DEBUG) 
+        logger.debug "${issue.key} start PF for send email to Customer when issue transition to request for information"
+        Comment lastComment = ComponentAccessor.getCommentManager().getLastComment(issue)
+        String email = issue.getCustomFieldValue(emailCF)
+        if (lastComment.getAuthorApplicationUser() != admin && email) {
+            String subject = "${issue.key} SUBJECT"
+            String body = lastComment.getBody()
+            TemporaryWebAttachmentManager temporaryAttachmentUtil = ComponentAccessor.getComponent(TemporaryWebAttachmentManager)
+			def formToken = ActionContext.getRequest()?.getParameter(IssueFieldConstants.FORM_TOKEN)
+			Collection<TemporaryWebAttachment> tempWebAttachments = temporaryAttachmentUtil.getTemporaryWebAttachmentsByFormToken(formToken)
+            List<String> attachmentNames = new ArrayList()
+            tempWebAttachments.each {attachmentNames.add(it.getFilename())}
+            Thread.start {
+                sleep(10000)
+                List<Attachment> attachments = ComponentAccessor.getAttachmentManager().getAttachments(issue).findAll {it.getFilename() in attachmentNames}
+                Map<File,Attachment> FileAndAttahmentMap = new HashMap()
+                for (Attachment attachment : attachments) {
+                    File attachmentFile = ComponentAccessor.getAttachmentManager().streamAttachmentContent(attachment, new FileInputStreamConsumer(attachment.getFilename()))
+    				FileAndAttahmentMap.put(attachmentFile,attachment)
+                }
+                sendMailWithAttachment(email, subject, body, FileAndAttahmentMap)
+            }
+        }
+        else {
+        	logger.debug "${issue.key}: Comment from JIRA or email is empty, email isn't sending"
+        }    
+    }
+
+    /*
+    // Получить временные файлы атача на транзите (расположение ПФ в центре). Не работает, т.к. надо создавать файл, на всякий случай сохраню
+    List<File> fileList = new ArrayList()
+    for (TemporaryWebAttachment attachment : tempWebAttachments) {
+        File attachFile = new File("AttachmentDirectoryAccessor.getTemporaryAttachmentDirectory() ",attachment.getStringId())
+        fileList.add(attach)
+    }
+    Thread.start {
+        sleep(10000)
+        List<Attachment> attachments = ComponentAccessor.getAttachmentManager().getAttachments(issue)
+        Map<File,Attachment> FileAndAttahmentMap = new HashMap()
+        for (File attachFile : fileList) {
+            FileAndAttahmentMap.put(attachFile,attachments.find{it.getFilename() == attachFile.getName()}) 
+    }
+    */
+
+    // Дилей не работает т.к. создание атача происходит в момент его прикрепления к филду, а не в момент транзита
+        //Timestamp ts = new Timestamp(System.currentTimeMillis() - 7000) 
+        //for (Attachment attachment : attachments) {
+            //File attachmentFile = ComponentAccessor.getAttachmentManager().streamAttachmentContent(attachment, new FileInputStreamConsumer(attachment.getFilename()))
+            //FileAndAttahmentMap.put(attachmentFile,attachment)
+        //}
+    
+    
+    boolean sendMailWithAttachment(String emailAddr,String subject, String body, Map<File,Attachment> FileAndAttahmentMap) {
+        SMTPMailServer mailServer = ComponentAccessor.mailServerManager.defaultSMTPMailServer 
+        boolean wasAddedToQueue = false
+        if (mailServer) {
+            Email mail = new Email(emailAddr)
+            mail.setSubject(subject)
+            Multipart multipart = new MimeMultipart("mixed")
+    		MimeBodyPart bodyPart = new MimeBodyPart()
+    		bodyPart.setContent(body, "text/html; charset=utf-8")
+    		multipart.addBodyPart(bodyPart)
+            for (Map.Entry<String, String> entry : FileAndAttahmentMap.entrySet()) {
+    			MimeBodyPart attachmentPart = new MimeBodyPart()
+        		attachmentPart.attachFile(entry.getKey(), (entry.getValue() as Attachment).getMimetype(), null)
+        		attachmentPart.setFileName((entry.getValue() as Attachment).getFilename())
+        		multipart.addBodyPart(attachmentPart) 
+			}
+    		
+            mail.setMultipart(multipart)
+    		mail.setMimeType("multipart/mixed")
+            mail.setFrom("rosgidromet_sup@inno.tech")
+            mail.setFromName("Поддержка РосГидроМет")
+    		SingleMailQueueItem smqi = new SingleMailQueueItem(mail)
+    		ComponentAccessor.getMailQueue().addItem(smqi)
+            wasAddedToQueue = true
+        }
+        return wasAddedToQueue
+    }
+
+    class FileInputStreamConsumer implements InputStreamConsumer<File> {
+        private final String filename;
+
+        public FileInputStreamConsumer(String filename) {
+            this.filename = filename;
+        }
+
+        @Override
+        File withInputStream(InputStream is) throws IOException {       
+            String filename = FilenameUtils.getBaseName(filename)
+            final File attachmentFile = File.createTempFile("${filename}", FilenameUtils.getExtension(filename))
+            StreamUtils.copy(is, new FileOutputStream(attachmentFile))
+            return attachmentFile
+        }
+    }   
+}
+
+
+
+
+
+
+
+
+
+

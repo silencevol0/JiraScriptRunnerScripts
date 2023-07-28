@@ -1,0 +1,236 @@
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.event.issue.IssueEvent
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+import com.atlassian.jira.issue.MutableIssue
+import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.impl.client.HttpClientBuilder
+import org.apache.http.impl.client.CloseableHttpClient
+import org.apache.http.HttpEntity
+import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import com.fasterxml.jackson.databind.node.ObjectNode
+import com.fasterxml.jackson.databind.node.ArrayNode
+import org.apache.http.entity.StringEntity
+import org.apache.http.entity.ContentType
+import groovy.json.JsonSlurper
+import java.sql.Timestamp
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.issue.attachment.Attachment
+import com.atlassian.jira.util.io.InputStreamConsumer
+import com.atlassian.jira.issue.AttachmentManager
+import org.apache.commons.io.FilenameUtils
+import org.springframework.util.StreamUtils
+import com.atlassian.jira.issue.customfields.option.Option
+import com.atlassian.jira.issue.customfields.option.Options
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.fields.config.FieldConfig
+import com.atlassian.jira.issue.customfields.manager.OptionsManager
+
+import Projects.REC.RecHelper
+
+
+new Class_CheckRecognitionDocuments().run(event)
+class Class_CheckRecognitionDocuments {
+    
+    RecHelper recHelper = new RecHelper()
+    
+    Logger logger = Logger.getLogger(this.class.name)
+    ApplicationUser admin = ComponentAccessor.userManager.getUserByName("JIRA")
+	MutableIssue issue
+    AttachmentManager am = ComponentAccessor.getAttachmentManager()
+    OptionsManager om = ComponentAccessor.getOptionsManager()
+    Date currentDate = new Date()
+    
+    void run(IssueEvent event) {
+        logger.setLevel(Level.DEBUG)
+        issue = event.issue as MutableIssue
+        String issueKey = issue.key
+        logger.debug "${issueKey}: start listener for action after change field - 'Статус распознавания документов' in REC project" 
+        List<HashMap<String, Object>> changeItems = event.getChangeLog()?.getRelated("ChildChangeItem") as List<HashMap<String, Object>>;
+        Map<String,Object> change = changeItems?.find{ it.field == "Статус распознавания документов"}
+        if (change) {
+        	logger.debug "${issueKey}: field 'Статус распознавания документов' was changed, continue script"
+            ObjectNode mapHrLinkRequest = JsonNodeFactory.instance.objectNode()
+            String recommenderEmail = issue.getCustomFieldValue(recHelper.recommendersEmailCF)
+            mapHrLinkRequest.put("PARAMS", recommenderEmail)
+            logger.debug "${issueKey}: Start to feel map, single value PARAMS is - ${recommenderEmail}, continue script"
+            HttpEntity entityHrLink = new StringEntity(mapHrLinkRequest.toString(), ContentType.APPLICATION_JSON) as HttpEntity
+            CloseableHttpResponse createRequestCheckHrLink = postRequest(recHelper.apiUrlCheckHRLinkCert, entityHrLink)
+            String responseHrLink = createRequestCheckHrLink.entity.content.text
+            if (createRequestCheckHrLink.statusLine.statusCode == 200) {
+                Map<String,String> parsedBodyHrLink = new JsonSlurper().parseText(responseHrLink) as Map
+                Boolean certActive = parsedBodyHrLink.getAt("CertActive") as Boolean
+                if (certActive == true) { 
+                    if (change.newstring == "Документы распознаны") {
+                        String sizeOfAppeal = issue.getCustomFieldValue(recHelper.sizeOfAppealCF).toString()
+                        MutableIssue linkedIssue = issue.getCustomFieldValue(recHelper.linkedIssueCF) as MutableIssue
+                        logger.debug "${issueKey}: sert is active, statusDocuments - 'Документы распознаны', start to feel map and send info to 1c, continue script"
+                        ObjectNode mapToSend1cInfo = JsonNodeFactory.instance.objectNode()
+                        mapToSend1cInfo.put("JiraCode", issueKey)
+                        mapToSend1cInfo.put("JiraLink", "${recHelper.getBaseUrl()}/browse/${issueKey}")
+                        mapToSend1cInfo.put("ContractDate", currentDate.format("yyyy-MM-dd"))
+                        mapToSend1cInfo.put("ContractSum", sizeOfAppeal)
+                        mapToSend1cInfo.put("EmployeeEmailAD", linkedIssue.getAssignee().getEmailAddress())
+                        mapToSend1cInfo.put("RecommenderEmailAD", recommenderEmail)
+                        mapToSend1cInfo.put("Vacancy", issue.getSummary())
+                        mapToSend1cInfo.put("Category", recHelper.sizeOfRewardAndCategoryMap.getAt(sizeOfAppeal)) 
+                        mapToSend1cInfo.put("Comment", "") 
+                        ArrayNode listStagesObjects = mapToSend1cInfo.putArray("Stages")
+                        feelStagesForMap(listStagesObjects, sizeOfAppeal) // Заполнение листа одним или двумя стейджами.
+                        ArrayNode listFilesObjects = mapToSend1cInfo.putArray("Files")
+                        for (Attachment attachment : findRequiredAttachmetns(issue)) {
+                            String attachmentName = attachment.getFilename()
+                            String tempAttachmentFile = am.streamAttachmentContent(attachment, new FileInputStreamConsumer(attachmentName)) as String
+                            ObjectNode tagAttachObject = listFilesObjects.addObject()
+                            tagAttachObject.put("FileName",attachmentName)
+                            tagAttachObject.put("FileExtension",FilenameUtils.getExtension(attachment.getFilename()))
+                            tagAttachObject.put("FileBody",new String(Base64.getEncoder().encode(tempAttachmentFile.bytes)))
+                        }
+                        logger.debug "${issueKey}: mapToSendInfo 1c - ${mapToSend1cInfo}, next step send info to rest, continue script"
+                        HttpEntity entitySend1cInfo = new StringEntity(mapToSend1cInfo.toString(), ContentType.APPLICATION_JSON) as HttpEntity
+                        CloseableHttpResponse createRequestSend1cInfo = postRequest(recHelper.apiUrlSend1cInfo, entitySend1cInfo)
+                        String responseSend1cInfo = createRequestSend1cInfo.entity.content.text
+                        if (createRequestSend1cInfo.statusLine.statusCode == 200) {
+                            issue.setCustomFieldValue(recHelper.changesCF, [setOption("Данные отправлены в 1с",issue)])
+                            recHelper.updateIssue(issue,EventDispatchOption.DO_NOT_DISPATCH)
+                            recHelper.sendComment(issue, "Данные успешно отправлены в 1с.")
+                            logger.debug "${issueKey}: rest returned 200, setOption for changeField and send comment. finished script"
+                        }
+                        else {
+                            recHelper.sendComment(issue, "Не удалось отправить данные в 1с. Обратитесь в SD для расследования инцидента.")
+                            logger.debug "${issueKey}: rest returned ${createRequestSend1cInfo.statusLine.statusCode}, textError - ${responseSend1cInfo} send comment, finished script"
+                        } 
+                    }
+                    else if (change.newstring == "Документы не распознаны") {
+                        sendEmailIfDocumentsIsNotRecognized(issueKey)
+                        logger.debug "${issueKey}: sert active but statusDocuments - 'Документы не распознаны', send info to Friends. finished script"
+                    }
+                }
+                else {
+                    logger.debug "${issueKey}: sert is inactive, check when we send mail to recommender and do next action, continue script"
+                    sendEmailIfSertIsNotActive(issueKey)
+                    if (change.newstring == "Документы не распознаны") {
+                        logger.debug "${issueKey}: field 'Статус распознавания документов' was changed and value - 'Документы не распознаны', continue script"
+                       	sendEmailIfDocumentsIsNotRecognized(issueKey)
+                    }
+                }
+            }
+            else {
+            	recHelper.sendComment(issue,"Не удалось проверить наличие сертификата у рекомендателя, обратитсь в SD для расследования инцидента")
+                logger.error "Rest returned is not 200, need investigation. Send comment and stop script for this issue"
+            }
+    	} 
+        else logger.debug "${issueKey}: field 'Статус распознавания документов' is not changed, stop listener"
+    }
+    
+    void sendEmailIfDocumentsIsNotRecognized(String issueKey) {
+         String applicantFullNames = issue.getCustomFieldValue(recHelper.applicantFullNamesCF)
+         String recomendersFullNames = issue.getCustomFieldValue(recHelper.recomendersFullNamesCF)
+         String applicantsSurnameAndInitials = recHelper.getSurnameAndInitials(applicantFullNames)
+         String recomendersSurnameAndInitials = recHelper.getSurnameAndInitials(recomendersFullNames)
+         String summary = issue.getSummary()
+
+         String emailToSend = recHelper.emailProgramAdmin
+         String subject = ""
+         String body = """
+         	
+        	"""
+        recHelper.sendMail(emailToSend,subject,body)
+        recHelper.sendCommentTESTEMAIL(issue, """Отправлено на - ${emailToSend} \n
+        	Тема письма: \n ${subject} \n\n
+            Тело письма: \n ${body} \n\n
+        	""") 
+        logger.debug "${issueKey}: documents not recognized, send email to Friends."
+    }
+    
+    void sendEmailIfSertIsNotActive(String issueKey) {
+        String emailToSend = issue.getCustomFieldValue(recHelper.recommendersEmailCF)
+        String subject = ""
+        String body = """
+        	
+       	"""
+       	recHelper.sendMail(emailToSend,subject,body)
+       	recHelper.sendCommentTESTEMAIL(issue, """Отправлено на - ${emailToSend} \n
+       		Тема письма: \n ${subject} \n\n
+       		Тело письма: \n ${body} \n\n
+       	""") 
+        issue.setDueDate(new Timestamp(System.currentTimeMillis()))
+        issue.setCustomFieldValue(recHelper.changesCF, [setOption("HR Link отсутствует",issue)])
+        recHelper.updateIssue(issue,EventDispatchOption.DO_NOT_DISPATCH)
+        logger.debug "${issueKey}: Email to ${emailToSend} was sended, due date in issue updated, stop script."
+    }
+    
+    Option setOption(String value, MutableIssue issue) { 
+        FieldConfig config = recHelper.changesCF.getRelevantConfig(issue)
+        Options options = om.getOptions(config)
+        Option option = options.find {it.value == value}
+        return option
+    }
+    
+    void feelStagesForMap(ArrayNode listStagesObjects, String sizeOfAppeal) {
+        Map<String,String> countOfPayMap = recHelper.countOfPayMap
+        if (countOfPayMap.getAt(sizeOfAppeal) == "Единовременно") {
+            ObjectNode tagStagesObject = listStagesObjects.addObject()
+            tagStagesObject.put("Date",currentDate.format("yyyy-MM-dd"))
+            tagStagesObject.put("Sum",sizeOfAppeal)
+        }
+        else if (countOfPayMap.getAt(sizeOfAppeal) == "В два этапа") {
+            Integer sizeOfAppealInt = sizeOfAppeal.replaceAll(" ","").toInteger()
+            BigDecimal halfSizeOfAppealInt = sizeOfAppealInt / 2
+            ObjectNode firstTagStagesObject = listStagesObjects.addObject()
+            firstTagStagesObject.put("Date",currentDate.format("yyyy-MM-dd"))
+            firstTagStagesObject.put("Sum",halfSizeOfAppealInt.toString())
+            ObjectNode secondTagStagesObject = listStagesObjects.addObject()
+            secondTagStagesObject.put("Date",currentDate.format("yyyy-MM-dd"))
+            secondTagStagesObject.put("Sum",halfSizeOfAppealInt.toString())
+        }  	
+    }
+    
+    List<Attachment> findRequiredAttachmetns(MutableIssue issue) {
+        List<Attachment> allAttachments = am.getAttachments(issue)
+        List<Attachment> correctAttachments = allAttachments.findAll{it.getFilename().contains("Скан")}
+        return correctAttachments
+    }
+    
+    CloseableHttpResponse postRequest(String url, HttpEntity entity){
+        logger.debug "Send POST request to: ${url}"
+        CloseableHttpClient httpClient
+        CloseableHttpResponse resp
+        try{
+            httpClient = HttpClientBuilder.create().build()
+            HttpPost httpPost = new HttpPost(url)
+            httpPost.setHeader("Accept", "application/json")
+            httpPost.setHeader("Authorization", recHelper.BASIC_AUTH_1c)
+            httpPost.setEntity(entity)
+            resp = httpClient.execute(httpPost)
+		}
+        catch(Exception e){
+            logger.error "POST error: ${e.message}"
+        }
+        finally{
+            logger.debug "POST request to: ${url} done"
+            Thread.start{
+                Thread.sleep(1000)
+                httpClient.close()
+            }
+            return resp
+        }
+    }
+    
+    class FileInputStreamConsumer implements InputStreamConsumer {
+        private final String fileName
+
+        FileInputStreamConsumer(String fileName) {
+            this.fileName = fileName
+        }
+
+        @Override
+        File withInputStream(InputStream inputStream) throws IOException {
+            final File file = File.createTempFile("${FilenameUtils.getBaseName(fileName)}-", ".${FilenameUtils.getExtension(fileName)}")
+            StreamUtils.copy(inputStream, new FileOutputStream(file))
+            return file
+        }
+    }
+}

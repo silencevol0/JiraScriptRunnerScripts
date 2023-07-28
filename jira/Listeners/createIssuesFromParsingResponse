@@ -1,0 +1,135 @@
+
+import com.atlassian.jira.component.ComponentAccessor
+import java.text.SimpleDateFormat
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.IssueManager
+import groovy.json.JsonSlurper
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.MutableIssue
+import org.apache.http.entity.mime.MultipartEntityBuilder
+import org.apache.http.entity.mime.content.FileBody
+import java.sql.Timestamp
+import com.atlassian.jira.issue.attachment.Attachment
+import com.atlassian.jira.issue.AttachmentManager
+import com.atlassian.jira.util.io.InputStreamConsumer
+import org.apache.commons.io.FilenameUtils
+import org.springframework.util.StreamUtils
+import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.impl.client.HttpClientBuilder
+import org.apache.http.impl.client.CloseableHttpClient
+import org.apache.http.HttpEntity
+import com.atlassian.jira.event.issue.IssueEvent
+
+
+new Class_ParseExcelForDIONSUP().run(event)
+
+class Class_ParseExcelForDIONSUP {
+    
+    AttachmentManager am = ComponentAccessor.getAttachmentManager()
+    Logger logger = Logger.getLogger(this.class.name)
+    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm")
+    ApplicationUser admin = ComponentAccessor.getUserManager().getUserByName("USERNAME")
+    
+    def run(IssueEvent event) {
+        logger.setLevel(Level.DEBUG)
+        long issueId = event.issue.getId()
+        List<HashMap<String, Object>> changeItems = event.getChangeLog()?.getRelated("ChildChangeItem") as List<HashMap<String, Object>>;
+        Map<String,Object> change = changeItems?.find{ it.field in ["Attachment","Вложение"]}
+        
+        if (change && event.issue.getKey() == "ISSUEKEY" && change.newvalue != null) {
+            logger.debug "Start parsing xls"
+            Thread.start {
+                Thread.sleep(300)
+                int attachmentId = change.newvalue.toString().toInteger()
+                MutableIssue issue = ComponentAccessor.getIssueManager().getIssueObject(issueId)
+                Attachment attachment = am.getAttachment(attachmentId)
+                String tempAttachmentFile = am.streamAttachmentContent(attachment, new FileInputStreamConsumer(attachment.getFilename())) as String
+                File attachFile = new File(tempAttachmentFile as String)
+                MultipartEntityBuilder attachmentEntity = MultipartEntityBuilder.create()
+                attachmentEntity.addPart("upload_file", new FileBody(new File(tempAttachmentFile as String)))
+                CloseableHttpResponse createRequest = postRequest("URL",attachmentEntity.build())
+                String response = createRequest.entity.content.text
+                if (createRequest.statusLine.statusCode == 200) {
+                    List<Object> parsedBody = new JsonSlurper().parseText(response) as List
+                    for (Object everyString : parsedBody) {
+                        String message = everyString.getAt("message")
+                        String rating = everyString.getAt("rating")
+                        String created = everyString.getAt("created_at")
+                        String name = everyString.getAt("name")
+                        String email = everyString.getAt("email")
+                        String userAgent = everyString.getAt("user_agent")
+                        //logger.debug("Message >>> ${message}, rating >>> ${rating}, created >>> ${created}, name >>> ${name}, email >>> ${email}, userAgent >>> ${userAgent}")
+                        if (email.contains("@") && ((message != "null" && message != null) || rating.toInteger() in [1,2,3])) {
+                            createIssue(email,created,message,rating,userAgent)
+                        }
+                    }
+                }
+            	else logger.debug "Rest request return statusCode not 200, check repsonse - ${response}"
+            }    
+        }
+        else logger.debug "Attachment wasn't added or issueKey is not - 'DIONSUP-65', current issueKey ${event.issue.getKey()}"
+    }
+    
+    void createIssue(String email, String created, String message, String rating, String userAgent) {
+ 		Issue newIssue = ComponentAccessor.issueFactory.getIssue()
+        newIssue.setSummary("Обращение от ${email}")
+        newIssue.setReporter(admin)
+        newIssue.setProjectObject(ComponentAccessor.getProjectManager().getProjectObjByKey("DIONSUP"))
+        newIssue.setIssueTypeId(ComponentAccessor.getConstantsManager().getAllIssueTypeObjects().find{it.getName() == "Задача"}.id)
+        newIssue.setCustomFieldValue(ComponentAccessor.getCustomFieldManager().getCustomFieldObject(20704),rating.toDouble())
+        newIssue.setCustomFieldValue(ComponentAccessor.getCustomFieldManager().getCustomFieldObject(10600),email)
+        newIssue.setCustomFieldValue(ComponentAccessor.getCustomFieldManager().getCustomFieldObject(20705),userAgent)
+        Date date = dateFormat.parse(created)
+        Timestamp timeStampDate = new Timestamp(date.getTime())
+        newIssue.setCustomFieldValue(ComponentAccessor.getCustomFieldManager().getCustomFieldObject(20707),timeStampDate)
+        if (message != "null" && message != null) newIssue.setDescription(message)
+		else newIssue.setDescription(null)
+        Map<String,Object> newIssueParams = ["issue" : newIssue] as Map<String,Object>
+        ComponentAccessor.getIssueManager().createIssueObject(admin, newIssueParams)
+    }
+        
+    CloseableHttpResponse postRequest(String url, HttpEntity entity){
+        logger.debug "Send POST request to: ${url}"
+        CloseableHttpClient httpClient
+        CloseableHttpResponse resp
+        try{
+            httpClient = HttpClientBuilder.create().build()
+            HttpPost httpPost = new HttpPost(url)
+            httpPost.setHeader("Accept", "application/json")
+            httpPost.setEntity(entity)
+            resp = httpClient.execute(httpPost)
+		}
+        catch(Exception e){
+            logger.error "POST error: ${e.message}"
+        }
+        finally{
+            logger.debug "POST request to: ${url} done"
+            Thread.start{
+                Thread.sleep(1000)
+                httpClient.close()
+            }
+            return resp
+        }
+    }
+
+    class FileInputStreamConsumer implements InputStreamConsumer<File> {
+		private final String filename;
+
+		public FileInputStreamConsumer(String filename) {
+    		this.filename = filename;
+    	}
+
+        @Override
+        File withInputStream(InputStream is) throws IOException {       
+            String filename = FilenameUtils.getBaseName(filename)
+            final File attachmentFile = File.createTempFile("${filename}", FilenameUtils.getExtension(filename))
+            StreamUtils.copy(is, new FileOutputStream(attachmentFile))
+            return attachmentFile
+        }
+	} 
+}
+

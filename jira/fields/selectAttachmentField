@@ -1,0 +1,35 @@
+// DATA BASE PICKER TYPE
+
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.scriptrunner.canned.jira.fields.model.PickerOption
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.AttachmentManager
+import com.atlassian.jira.issue.attachment.Attachment
+
+def attManager = ComponentAccessor.getAttachmentManager()
+
+search = { String inputValue, Issue issue ->
+    issue.getAttachments()
+}
+
+toOption = { Attachment attach, Closure highlight ->
+    new PickerOption(
+        value: attach.id,
+        label: attach.filename,
+        html: "${highlight(attach.filename, false)} ",
+    )
+}
+
+renderItemViewHtml = { Attachment attach -> 
+        """<a href ='${"https://jira.inno.tech/secure/attachment/${attach.id}/${URLEncoder.encode(attach.filename, 'UTF-8')}"}' target="_blank">${attach.filename}</a>"""
+}
+
+
+renderItemTextOnlyValue = { Attachment attachment ->
+    attachment.getFilename()
+}
+
+
+getItemFromId = { String id ->
+    attManager.getAttachment(id as Long)
+}

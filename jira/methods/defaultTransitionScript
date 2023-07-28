@@ -5,15 +5,21 @@ import com.atlassian.jira.bc.issue.IssueService
 import com.atlassian.jira.workflow.JiraWorkflow
 
 
-IssueService.IssueResult transitIssue(Issue issue, String transitName){
+boolean transitIssue(MutableIssue issue, String transitName) {
+    boolean checker = false
     IssueService issueService = ComponentAccessor.getIssueService()
-    ApplicationUser applicationUser = ComponentAccessor.getUserManager().getUserByName("USERNAME")
     JiraWorkflow workflow = ComponentAccessor.workflowManager.getWorkflow(issue)
-    int transitionID = workflow.getActionsByName(transitName).first().id
     Builder builder =  new Builder()
     Builder transopt = builder.skipConditions().skipValidators().skipPermissions()
-    IssueService.TransitionValidationResult transitionValidationResult = issueService.validateTransition(applicationUser, issue.getId(), transitionID, issueService.newIssueInputParameters(),transopt.build())
-    log.debug("${issue.key} ${transitionValidationResult.isValid()}")
-    if (transitionValidationResult.isValid()) 
-	IssueService.IssueResult transitionResult = issueService.transition(applicationUser, transitionValidationResult)
+    List<Integer> transitionsId = workflow.getActionsByName(transitName)*.id as List
+    for (Integer transitionID : transitionsId) {
+        IssueService.TransitionValidationResult transitionValidationResult = issueService.validateTransition(admin, issue.getId(), transitionID, issueService.newIssueInputParameters(),transopt.build())
+        logger.debug("${issue.key} ${transitionValidationResult.isValid()}")
+        if (transitionValidationResult.isValid()) {
+            IssueService.IssueResult transitionResult = issueService.transition(admin, transitionValidationResult)
+            checker = true
+            break
+        }  
+    }
+    return checker
 }

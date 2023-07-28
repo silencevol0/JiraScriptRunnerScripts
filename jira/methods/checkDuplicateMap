@@ -1,0 +1,8 @@
+void addErrorMap(String issueKey, String errorText) {
+        List<String> listToSet = new ArrayList()
+        if (errorMap.getAt(issueKey)) {
+            listToSet = errorMap.getAt(issueKey)
+        }
+        listToSet.add(errorText)
+        errorMap.put(issueKey,listToSet)
+    }
