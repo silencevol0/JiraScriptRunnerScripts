@@ -23,3 +23,17 @@ boolean transitIssue(MutableIssue issue, String transitName) {
     }
     return checker
 }
+
+
+
+
+IssueService.IssueResult transitIssue(Issue issue, int transitionID){
+    IssueService issueService = ComponentAccessor.getIssueService()
+    Builder builder =  new Builder()
+    Builder transopt = builder.skipConditions().skipValidators().skipPermissions()
+    IssueService.TransitionValidationResult transitionValidationResult = issueService.validateTransition(admin, issue.getId(), transitionID, issueService.newIssueInputParameters(),transopt.build())
+
+    if (transitionValidationResult.isValid())
+
+        IssueService.IssueResult transitionResult = issueService.transition(admin, transitionValidationResult)
+}

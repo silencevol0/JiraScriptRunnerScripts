@@ -1,0 +1,19 @@
+import com.atlassian.jira.issue.fields.CustomField
+
+List<String> getNameAndTransitNamesFieldForListeners(long customFieldId) {
+    List<String> allFieldNames = new ArrayList()
+    CustomField cf = ComponentAccessor.customFieldManager.getCustomFieldObject(customFieldId)
+    
+    if (!cf) return
+    
+    List<String> keys = cf.getPropertySet().getKeys() as List
+
+    for (String key : keys) {
+        String value = cf.getPropertySet().getString(key)
+		allFieldNames.add(value)
+    }
+ 
+    allFieldNames.add(cf.getProperties().getAt("untranslatedName") as String)
+
+    return allFieldNames
+}

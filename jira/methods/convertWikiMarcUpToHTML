@@ -1,0 +1,11 @@
+import com.atlassian.jira.issue.fields.renderer.IssueRenderContext
+import com.atlassian.jira.issue.RendererManager
+
+String wikiToHtml(Issue issue) {
+    def rendererManager = ComponentAccessor.getComponent(RendererManager)
+    def wikiRenderer = rendererManager.getRendererForType("atlassian-wiki-renderer")
+    def renderContext = new IssueRenderContext(issue)   
+    def cf = ComponentAccessor.customFieldManager.getCustomFieldObjects(issue)?.findByName("Визы согласования")
+
+    return wikiRenderer.render(issue.getCustomFieldValue(cf) as String, renderContext)
+}

@@ -1,0 +1,56 @@
+// Скрипт на копирование задач, написан абы-как, будет удален после использования.
+
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.fields.CustomField
+import com.onresolve.scriptrunner.canned.jira.workflow.postfunctions.CloneIssue
+import com.onresolve.scriptrunner.runner.ScriptRunnerImpl
+import com.sun.mail.imap.IMAPProvider
+import com.atlassian.mail.server.MailServerManager
+import com.atlassian.mail.server.SMTPMailServer
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.mail.Email
+import com.atlassian.mail.queue.SingleMailQueueItem
+
+List<String> listKeys = new ArrayList()
+CustomField cf = ComponentAccessor.getCustomFieldManager().getCustomFieldObject(22325)
+Integer counter = issue.getCustomFieldValue(cf) as Integer
+
+for (int s = 1; s <= counter; s++) {
+	MutableIssue newIssue = cloneIssue(issue)
+    listKeys.add(newIssue.key)
+}
+String subject = """С задачи ${issue.key} было создано ${counter} копий"""
+String body = """Ссылка на исходную задачу -  <br> <br> Запрос на JQL сформированных задач >>> key in (${String.join(",",listKeys)}) <<<"""
+sendMail("", subject, body)
+
+MutableIssue cloneIssue(MutableIssue correctContasksIssue) {   
+        def cloneIssueBean = ScriptRunnerImpl.scriptRunner.createBean(CloneIssue)
+        def inputs = [ 
+            'FIELD_TARGET_PROJECT' : correctContasksIssue.getProjectObject().getKey(), 
+            'FIELD_SELECTED_FIELDS': null, // clone issue with all fields 
+        ] as Map<String, Object> 
+
+        def executionContext = [  
+            issue: correctContasksIssue as Object, 
+        ]
+        def result =  cloneIssueBean.execute(inputs, executionContext)
+		MutableIssue newIssue = ComponentAccessor.getIssueManager().getIssueObject(result.newIssue.getAt("key").toString())
+        return newIssue
+    }
+
+boolean sendMail(String emailAddr, String subject, String body) { 
+	SMTPMailServer mailServer = ComponentAccessor.mailServerManager.defaultSMTPMailServer 
+    boolean wasAddedToQueue = false
+    if (mailServer) {
+    	Email mail = new Email(emailAddr)
+        mail.setSubject(subject)
+        mail.setBody(body)
+        mail.setMimeType("text/html")
+        SingleMailQueueItem item = new SingleMailQueueItem(mail)
+        ComponentAccessor.mailQueue.addItem(item)
+        wasAddedToQueue = true
+    }
+    return wasAddedToQueue
+}
